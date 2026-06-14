@@ -3,8 +3,9 @@ import sys
 import os
 import json
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon as MplPolygon
+from matplotlib.patches import Polygon as MplPolygon, Patch
 from matplotlib.collections import PatchCollection
+import matplotlib.font_manager as fm
 from shapely.geometry import Polygon, Point, MultiPolygon
 from shapely.ops import unary_union
 from shapely import STRtree
@@ -193,7 +194,7 @@ def _match_target(ext_path, target):
     return all(part in ext_parts for part in parts)
 
 
-def load_label_map(label_json_path):
+def load_label_map(label_json_path, admin_regions=None):
     """读取标签json，返回 ext_path分词集合 -> label_index 的映射列表"""
     with open(label_json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -202,6 +203,16 @@ def load_label_map(label_json_path):
         for fullname in data.get(label_name, []):
             parts = frozenset(fullname.split())
             label_map.append((parts, label_idx))
+
+    if admin_regions is not None:
+        all_ext_paths = [r['row']['ext_path'] for r in admin_regions]
+        for label_idx, label_name in enumerate(LABEL_ORDER):
+            for fullname in data.get(label_name, []):
+                parts = frozenset(fullname.split())
+                matched = any(parts <= set(ep.split()) for ep in all_ext_paths)
+                if not matched:
+                    print(f"[警告] 标签 '{label_name}' 中的名称 '{fullname}' 无法匹配任何行政区")
+
     return label_map
 
 
@@ -217,7 +228,7 @@ def _get_label_index(ext_path, label_map):
 def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-1,
                           point_size=0.5, prefix_name='县级可视化', target_names=None,
                           ignore_names=None, points_within_only=True, fig_width=-1, format='jpg',
-                          label_json=None):
+                          label_json=None, font_scale=1):
     base_file_names = [prefix_name, f'base-{admin_regions[1]}', f'path-{points_df[1]}']
     points_df = points_df[0]
     admin_regions_list = admin_regions[0]
@@ -288,7 +299,7 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
         df.to_csv(out_csv_name, index=False, encoding='utf-8')
 
     # 加载标签映射
-    label_map = load_label_map(label_json) if label_json else []
+    label_map = load_label_map(label_json, admin_regions_list) if label_json else []
 
     print("绘制地图...")
     pad_x = (maxx - minx) * 0.05
@@ -324,6 +335,30 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
     ax.set_aspect('equal')
     ax.set_yscale('function', functions=(mercator_forward, mercator_inverse))
     ax.grid(False)
+
+    # 图例：根据图片尺寸自动缩放字体
+    legend_labels = ['住居（居住过）', '宿泊（住宿过）', '訪問（游玩过）', '接地（休息、换车等）', '通過（路过）', '未踏（没去过）']
+    legend_colors = type_colors + ['#ffffff']
+    legend_patches = [
+        Patch(facecolor=color, edgecolor='black', linewidth=fig_width * 0.04 * font_scale,
+              label=label)
+        for color, label in zip(legend_colors, legend_labels)
+    ]
+    font_size = fig_width * 1.2 * font_scale
+    font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size)
+    ax.legend(
+        handles=legend_patches,
+        # loc='lower right',
+        fontsize=font_size,
+        # framealpha=0.8,
+        frameon=False,
+        # edgecolor='black',
+        handlelength=2.0,
+        handleheight=1.2,
+        borderpad=0.6,
+        prop=font
+    )
+
     fig.tight_layout()
     fig.savefig(file_name)
     print(f"已保存: {file_name}")
@@ -340,21 +375,34 @@ if __name__ == '__main__':
     ])
     path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
     label_json='add_labels/add_label_list_fullname.json'
+    
+    china_provinces = [
+        "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
+        "江苏省", "浙江省", "安徽省", "福建省", "江西省",
+        "山东省", "河南省", "湖北省", "湖南省", "广东省",
+        "海南省", "四川省", "贵州省", "云南省", "陕西省",
+        "甘肃省", "青海省", 
+        "北京市", "天津市", "上海市", "重庆市", 
+        "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
+        "香港特别行政区", "澳门特别行政区", "臺灣省"
+    ]
 
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=150, label_json=label_json)
+    # for p in china_provinces:
+        # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, target_names=[p], label_json=label_json)
     # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['浙江省'], label_json=label_json)
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['陕西省'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['湖北省'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['陕西省'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['广东省'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['山东省'], label_json=label_json)
     # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['上海市'], label_json=label_json)
 
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['湖北省'], points_within_only=False)
-    
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['杭州市'], points_within_only=True)
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['金門縣'])
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['金门县'])
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['連江縣'])
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['连江县'])
     
-    # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
-    # visualize_with_points(border_data, path_data, show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
+    tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
+    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
 
