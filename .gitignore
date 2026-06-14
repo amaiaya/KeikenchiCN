@@ -1,3 +1,3 @@
-border_data/ok_geo.csv
-border_data/ok_geo_WGS.csv
-read_fwss/loca_20260613.csv
+*json
+*.csv
+*png
