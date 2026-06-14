@@ -180,120 +180,136 @@ def read_points_csv(csv_file, sampling=-1):
     return [points_df, points_type]
 
 
-def visualize_with_points(admin_regions, points_df, show_points=True, sampling=100,
-                          point_size=0.5, prefix_name='县级可视化', target_name=None):
-    file_names = [prefix_name]
-    file_names.append(f'base-{admin_regions[1]}')
-    file_names.append(f'path-{points_df[1]}')
+def _match_target(ext_path, target):
+    """target按空格分割后，每个部分须出现在ext_path的空格分割列表中"""
+    parts = target.split()
+    ext_parts = ext_path.split()
+    return all(part in ext_parts for part in parts)
 
-    if target_name is not None:
-        file_names.append(target_name)
-    file_name = '_'.join(file_names)
+
+def visualize_with_points(admin_regions, points_df, show_points=True, sampling=100,
+                          point_size=0.5, prefix_name='县级可视化', target_names=None):
+    base_file_names = [prefix_name, f'base-{admin_regions[1]}', f'path-{points_df[1]}']
+    points_df = points_df[0]
+    admin_regions_list = admin_regions[0]
+    lon_col, lat_col = points_df.columns[0], points_df.columns[1]
+
+    if target_names is None:
+        # 全局概览模式
+        out_csv_name = '_'.join(['经过县区名'] + base_file_names[1:]) + '.csv'
+        file_name = '_'.join(base_file_names)
+        if show_points:
+            file_name += '_轨迹点'
+        file_name += '.png'
+
+        points_df = points_df[::sampling]
+        lons = points_df[lon_col].astype(float).tolist()
+        lats = points_df[lat_col].astype(float).tolist()
+
+        geoms = [r['geom'] for r in admin_regions_list]
+        tree = STRtree(geoms)
+        has_point = set()
+        print("筛选点...")
+        for lo, la in tqdm(zip(lons, lats), total=len(lons)):
+            pt = Point(lo, la)
+            for idx in tree.query(pt):
+                if geoms[idx].contains(pt):
+                    has_point.add(idx)
+
+        print(f"共 {len(has_point)} 个行政区含点")
+        has_point_names = [admin_regions_list[idx]['row']['ext_path'] for idx in has_point]
+        pd.DataFrame(has_point_names, columns=['name']).to_csv(out_csv_name, index=False, encoding='utf-8')
+
+        print("绘制地图...")
+        fig, ax = plt.subplots(figsize=(45, 36))
+        green_patches = []
+        for idx, region in enumerate(admin_regions_list):
+            geom = region['geom']
+            if idx in has_point:
+                green_patches.extend(geom_to_mpl_patches(geom, facecolor='green', edgecolor='none', alpha=0.5))
+            plot_geom_boundary(ax, geom, color='black', lw=0.8)
+        if green_patches:
+            ax.add_collection(PatchCollection(green_patches, match_original=True, zorder=0))
+        if show_points:
+            ax.scatter(lons, lats, s=point_size, color='red', zorder=5, alpha=0.6)
+        ax.set_aspect('equal')
+        ax.set_yscale('function', functions=(mercator_forward, mercator_inverse))
+        ax.grid(False)
+        fig.tight_layout()
+        fig.savefig(file_name)
+        print(f"已保存: {file_name}")
+        plt.close(fig)
+        return
+    else:
+        points_df = points_df[::10]
+
+    # 把所有 target 匹配的行政区合并到一张图
+    filtered_regions = []
+    for target in target_names:
+        matched = [r for r in admin_regions_list if _match_target(r['row']['ext_path'], target)]
+        if not matched:
+            print(f"未找到匹配 '{target}' 的行政区")
+        filtered_regions.extend(matched)
+
+    if not filtered_regions:
+        print("没有匹配到任何行政区，退出")
+        return
+
+    label = '+'.join(target_names)
+    file_name = '_'.join(base_file_names + [label])
     if show_points:
         file_name += '_轨迹点'
     file_name += '.png'
-    out_csv_name = '_'.join(['经过县区名']+file_names[1:])+'.csv'
-    
-    points_df = points_df[0]
-    admin_regions = admin_regions[0]
-    if target_name is not None:
-        admin_regions = [r for r in admin_regions if r['row']['name'] == target_name ]
-    else:
-        points_df = points_df[::sampling]
-        
-    lon_col, lat_col = points_df.columns[0], points_df.columns[1]
 
-    if target_name is not None and not admin_regions:
-        print(f"未找到名为 '{target_name}' 的行政区")
-        return
+    geoms = [r['geom'] for r in filtered_regions]
+    all_geom = unary_union(geoms)
+    minx, miny, maxx, maxy = all_geom.bounds
 
-    geoms = [r['geom'] for r in admin_regions]
-
-    # 第二步：取点坐标。指定行政区时，先用bbox向量化粗筛，再精确判断
-    print("筛选点...")
     lons_all = points_df[lon_col].astype(float).to_numpy()
     lats_all = points_df[lat_col].astype(float).to_numpy()
+    mask = (lons_all >= minx) & (lons_all <= maxx) & \
+           (lats_all >= miny) & (lats_all <= maxy)
+    lons_cand = lons_all[mask]
+    lats_cand = lats_all[mask]
+    print(f"  bbox粗筛后剩 {len(lons_cand)}/{len(lons_all)} 个点")
 
-    if target_name is not None:
-        # 目标行政区整体的bounding box
-        all_geom = unary_union(geoms)
-        minx, miny, maxx, maxy = all_geom.bounds
-        # 向量化粗筛：只留bbox内的点
-        mask = (lons_all >= minx) & (lons_all <= maxx) & \
-               (lats_all >= miny) & (lats_all <= maxy)
-        lons_cand = lons_all[mask]
-        lats_cand = lats_all[mask]
-        print(f"  bbox粗筛后剩 {len(lons_cand)}/{len(lons_all)} 个点")
+    print("筛选点...")
+    tree = STRtree(geoms)
+    lons, lats = [], []
+    has_point = set()
+    for lo, la in tqdm(zip(lons_cand, lats_cand), total=len(lons_cand)):
+        pt = Point(lo, la)
+        for idx in tree.query(pt):
+            if geoms[idx].contains(pt):
+                has_point.add(idx)
+                lons.append(lo)
+                lats.append(la)
+                break
+    print(f"目标行政区内共 {len(lons)} 个点")
 
-        # 精确判断：只对候选点做contains
-        tree = STRtree(geoms)
-        lons, lats = [], []
-        has_point = set()
-        for lo, la in tqdm(zip(lons_cand, lats_cand), total=len(lons_cand)):
-            pt = Point(lo, la)
-            for idx in tree.query(pt):
-                if geoms[idx].contains(pt):
-                    has_point.add(idx)
-                    lons.append(lo)
-                    lats.append(la)
-                    break
-        print(f"目标行政区内共 {len(lons)} 个点")
-    else:
-        # 未指定行政区：保持原逻辑，所有点都要判断
-        lons = lons_all.tolist()
-        lats = lats_all.tolist()
-        tree = STRtree(geoms)
-        has_point = set()
-        for i, (lo, la) in enumerate(tqdm(zip(lons, lats), total=len(lons))):
-            pt = Point(lo, la)
-            for idx in tree.query(pt):
-                if geoms[idx].contains(pt):
-                    has_point.add(idx)
-
-    if target_name is None:
-        print(f"共 {len(has_point)} 个行政区含点")
-        has_point_names = [admin_regions[idx]['row']['ext_path'] for idx in has_point]
-        df = pd.DataFrame(has_point_names, columns=['name'])
-        df.to_csv(out_csv_name, index=False, encoding='utf-8')
-    
-    # 第三步：绘图
     print("绘制地图...")
-    if target_name:
-        figsize = (15, 15)
-    else:
-        figsize = (45, 36)
-    fig, ax = plt.subplots(figsize=figsize)
-
+    fig, ax = plt.subplots(figsize=(15, 15))
     green_patches = []
-    for idx, region in enumerate(admin_regions):
+    for idx, region in enumerate(filtered_regions):
         geom = region['geom']
         if idx in has_point:
-            green_patches.extend(
-                geom_to_mpl_patches(geom, facecolor='green',
-                                    edgecolor='none', alpha=0.5)
-            )
+            green_patches.extend(geom_to_mpl_patches(geom, facecolor='green', edgecolor='none', alpha=0.5))
         plot_geom_boundary(ax, geom, color='black', lw=0.8)
-
     if green_patches:
-        pc = PatchCollection(green_patches, match_original=True, zorder=0)
-        ax.add_collection(pc)
-
+        ax.add_collection(PatchCollection(green_patches, match_original=True, zorder=0))
     if show_points:
         ax.scatter(lons, lats, s=point_size, color='red', zorder=5, alpha=0.6)
-
-    # 指定行政区时缩放到该区范围
-    if target_name is not None:
-        pad_x = (maxx - minx) * 0.05
-        pad_y = (maxy - miny) * 0.05
-        ax.set_xlim(minx - pad_x, maxx + pad_x)
-        ax.set_ylim(miny - pad_y, maxy + pad_y)
-
+    pad_x = (maxx - minx) * 0.05
+    pad_y = (maxy - miny) * 0.05
+    ax.set_xlim(minx - pad_x, maxx + pad_x)
+    ax.set_ylim(miny - pad_y, maxy + pad_y)
     ax.set_aspect('equal')
     ax.set_yscale('function', functions=(mercator_forward, mercator_inverse))
     ax.grid(False)
     fig.tight_layout()
     fig.savefig(file_name)
     print(f"已保存: {file_name}")
+    plt.close(fig)
 
 
 if __name__ == '__main__':
@@ -307,7 +323,5 @@ if __name__ == '__main__':
     ])
     path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
 
-    visualize_with_points(border_data, path_data,
-                          show_points=False)
-    # visualize_with_points(border_data, path_data,
-    #                       show_points=True, target_name='金門縣')
+    # visualize_with_points(border_data, path_data, show_points=False)
+    visualize_with_points(border_data, path_data, show_points=True, target_names=['大阪府'])
