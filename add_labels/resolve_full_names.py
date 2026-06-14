@@ -43,6 +43,10 @@ for list_name, items in data.items():
             all_unique = False
             resolved[list_name].append(item)
 
+resolved['stayed'] += [
+    '西安市 长安区'
+]
+
 resolved['visited'] += [
     '辽宁省 大连市 旅顺口区',
     '辽宁省 大连市 沙河口区',
@@ -70,6 +74,11 @@ resolved['passed'] += [
     '山东省 济南市 钢城区',
     '山东省 泰安市 岱岳区',
     '山东省 泰安市 肥城区',
+# 去日照
+    '山东省 泰安市 新泰市',
+    '山东省 临沂市 沂南县',
+    '山东省 日照市 莒县',
+    '山东省 日照市 岚山区',
     '山东省 日照市 五莲县',
 # 去连云港
     '山东省 临沂市 河东区',

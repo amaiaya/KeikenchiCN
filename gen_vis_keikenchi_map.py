@@ -1,6 +1,7 @@
 import csv
 import sys
 import os
+import json
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.collections import PatchCollection
@@ -13,6 +14,7 @@ import numpy as np
 
 csv.field_size_limit(sys.maxsize)
 type_colors = ['#e84c3d', '#d58337', '#f3c218', '#30cc70', '#3598db'] # lived, stayed, visited, alighted, passed
+LABEL_ORDER = ['lived', 'stayed', 'visited', 'alighted', 'passed']
 
 def mercator_forward(lat):
     """
@@ -191,9 +193,31 @@ def _match_target(ext_path, target):
     return all(part in ext_parts for part in parts)
 
 
+def load_label_map(label_json_path):
+    """读取标签json，返回 ext_path分词集合 -> label_index 的映射列表"""
+    with open(label_json_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    label_map = []  # list of (parts_set, label_index)
+    for label_idx, label_name in enumerate(LABEL_ORDER):
+        for fullname in data.get(label_name, []):
+            parts = frozenset(fullname.split())
+            label_map.append((parts, label_idx))
+    return label_map
+
+
+def _get_label_index(ext_path, label_map):
+    """返回ext_path对应的label_index，未匹配返回None"""
+    ext_parts = set(ext_path.split())
+    for parts, label_idx in label_map:
+        if parts <= ext_parts:
+            return label_idx
+    return None
+
+
 def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-1,
                           point_size=0.5, prefix_name='县级可视化', target_names=None,
-                          ignore_names=None, points_within_only=True, fig_width=-1, format='jpg'):
+                          ignore_names=None, points_within_only=True, fig_width=-1, format='jpg',
+                          label_json=None):
     base_file_names = [prefix_name, f'base-{admin_regions[1]}', f'path-{points_df[1]}']
     points_df = points_df[0]
     admin_regions_list = admin_regions[0]
@@ -263,20 +287,33 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
         df.sort_values('name', inplace=True)
         df.to_csv(out_csv_name, index=False, encoding='utf-8')
 
+    # 加载标签映射
+    label_map = load_label_map(label_json) if label_json else []
+
     print("绘制地图...")
     pad_x = (maxx - minx) * 0.05
     pad_y = (maxy - miny) * 0.05
     x_range = (maxx + pad_x) - (minx - pad_x)
     y_merc_range = mercator_forward(maxy + pad_y) - mercator_forward(miny - pad_y)
     fig, ax = plt.subplots(figsize=(fig_width, fig_width * y_merc_range / x_range))
-    green_patches = []
+    colored_patches = []
     for idx, region in enumerate(regions):
         geom = region['geom']
-        if idx in has_point:
-            green_patches.extend(geom_to_mpl_patches(geom, facecolor=type_colors[-1], edgecolor='none', alpha=1))
+        ext_path = region['row']['ext_path']
+        json_label = _get_label_index(ext_path, label_map) if label_map else None
+
+        if json_label is not None:
+            # 出现在json中：按json标签着色（无论有没有点）
+            color = type_colors[json_label]
+            colored_patches.extend(geom_to_mpl_patches(geom, facecolor=color, edgecolor='none', alpha=1))
+        elif idx in has_point:
+            # 内部有点但未出现在json：默认passed颜色
+            color = type_colors[LABEL_ORDER.index('passed')]
+            colored_patches.extend(geom_to_mpl_patches(geom, facecolor=color, edgecolor='none', alpha=1))
+        # 内部无点且不在json中：不着色
         plot_geom_boundary(ax, geom, color='black', lw=0.8)
-    if green_patches:
-        ax.add_collection(PatchCollection(green_patches, match_original=True, zorder=0))
+    if colored_patches:
+        ax.add_collection(PatchCollection(colored_patches, match_original=True, zorder=0))
     if show_points:
         if points_within_only:
             ax.scatter(lons, lats, s=point_size, color='red', zorder=5, alpha=0.6)
@@ -302,9 +339,14 @@ if __name__ == '__main__':
         f'border_data/japan/japan_boundaries_{border_type}.csv',
     ])
     path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
+    label_json='add_labels/add_label_list_fullname.json'
 
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=200)
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['浙江省'], points_within_only=False)
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['浙江省'], label_json=label_json)
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['陕西省'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['上海市'], label_json=label_json)
+
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['湖北省'], points_within_only=False)
     
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['杭州市'], points_within_only=True)
@@ -313,7 +355,6 @@ if __name__ == '__main__':
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['連江縣'])
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['连江县'])
     
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['日本'], fig_width=80)
     # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
     # visualize_with_points(border_data, path_data, show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands)
 
