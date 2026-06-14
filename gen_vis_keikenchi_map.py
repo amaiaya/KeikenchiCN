@@ -369,9 +369,12 @@ if __name__ == '__main__':
     border_type = 'gcj'
     path_type = border_type
     border_data = read_base_border_csvs([
-        f'border_data/mainland/ok_geo_mainland_{border_type}.csv',
+        f'border_data/mainland/china_mainland_boundaries_{border_type}.csv',
         f'border_data/taiwan/taiwan_boundaries_{border_type}.csv',
         f'border_data/japan/japan_boundaries_{border_type}.csv',
+        f'border_data/vietnam/vn_1_boundaries_{border_type}.csv',
+        f'border_data/south_korea/sk_boundaries_{border_type}.csv',
+        f'border_data/north_korea/nk_boundaries_{border_type}.csv',
     ])
     path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
     label_json='add_labels/add_label_list_fullname.json'
@@ -403,6 +406,10 @@ if __name__ == '__main__':
     # visualize_with_points(border_data, path_data, show_points=True, target_names=['连江县'])
     
     # visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
-    tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
-    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
+    # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
+    
+    # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/县级可视化', fig_width=100, target_names=['Vietnam'])
+    visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/汉字文化圈', fig_width=150, label_json=label_json)
+
 
