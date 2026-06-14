@@ -12,7 +12,7 @@ from tqdm import tqdm
 import numpy as np
 
 csv.field_size_limit(sys.maxsize)
-type_colors = ['#e84c3d', '#d58337', '#f3c218', '#30cc70', '#3598db']
+type_colors = ['#e84c3d', '#d58337', '#f3c218', '#30cc70', '#3598db'] # lived, stayed, visited, alighted, passed
 
 def mercator_forward(lat):
     """
@@ -259,7 +259,9 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
         out_csv_name = '_'.join(['经过县区名'] + base_file_names[1:]) + '.csv'
         has_point_names = [regions[idx]['row']['ext_path'] for idx in has_point]
         has_point_numbers = [n_in_areas.get(idx, 0) for idx in has_point]
-        pd.DataFrame({'name': has_point_names, 'count': has_point_numbers}).to_csv(out_csv_name, index=False, encoding='utf-8')
+        df = pd.DataFrame({'name': has_point_names, 'count': has_point_numbers})
+        df.sort_values('name', inplace=True)
+        df.to_csv(out_csv_name, index=False, encoding='utf-8')
 
     print("绘制地图...")
     pad_x = (maxx - minx) * 0.05
@@ -271,7 +273,7 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
     for idx, region in enumerate(regions):
         geom = region['geom']
         if idx in has_point:
-            green_patches.extend(geom_to_mpl_patches(geom, facecolor='green', edgecolor='none', alpha=0.5))
+            green_patches.extend(geom_to_mpl_patches(geom, facecolor=type_colors[-1], edgecolor='none', alpha=1))
         plot_geom_boundary(ax, geom, color='black', lw=0.8)
     if green_patches:
         ax.add_collection(PatchCollection(green_patches, match_original=True, zorder=0))
