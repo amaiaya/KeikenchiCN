@@ -175,7 +175,10 @@ def read_points_csv(csv_file, sampling=-1):
         points_type = 'WGS'
     else:
         raise ValueError
-    print(f"加载了 {n_points} 个点，抽样为 {n_points_sampling} 个点，坐标系{points_type}")
+    if sampling > 0:
+        print(f"加载了 {n_points} 个点，抽样为 {n_points_sampling} 个点，坐标系{points_type}")
+    else:
+        print(f"加载了 {n_points} 个点，坐标系{points_type}")
     
     return [points_df, points_type]
 
@@ -188,7 +191,7 @@ def _match_target(ext_path, target):
 
 
 def visualize_with_points(admin_regions, points_df, show_points=True, sampling=100,
-                          point_size=0.5, prefix_name='县级可视化', target_names=None):
+                          point_size=0.5, prefix_name='县级可视化', target_names=None, ignore_names=None):
     base_file_names = [prefix_name, f'base-{admin_regions[1]}', f'path-{points_df[1]}']
     points_df = points_df[0]
     admin_regions_list = admin_regions[0]
@@ -203,6 +206,7 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
         file_name += '.png'
 
         points_df = points_df[::sampling]
+        print(f"抽样为 {len(points_df)} 个轨迹点")
         lons = points_df[lon_col].astype(float).tolist()
         lats = points_df[lat_col].astype(float).tolist()
 
@@ -221,7 +225,18 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
         pd.DataFrame(has_point_names, columns=['name']).to_csv(out_csv_name, index=False, encoding='utf-8')
 
         print("绘制地图...")
-        fig, ax = plt.subplots(figsize=(45, 36))
+        all_bounds = [r['geom'].bounds for r in admin_regions_list]
+        gminx = min(b[0] for b in all_bounds)
+        gminy = min(b[1] for b in all_bounds)
+        gmaxx = max(b[2] for b in all_bounds)
+        gmaxy = max(b[3] for b in all_bounds)
+        gpad_x = (gmaxx - gminx) * 0.05
+        gpad_y = (gmaxy - gminy) * 0.05
+        x_range = (gmaxx + gpad_x) - (gminx - gpad_x)
+        y_merc_range = mercator_forward(gmaxy + gpad_y) - mercator_forward(gminy - gpad_y)
+        fig_width = 50
+        fig_height = fig_width * y_merc_range / x_range
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         green_patches = []
         for idx, region in enumerate(admin_regions_list):
             geom = region['geom']
@@ -242,11 +257,17 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
         return
     else:
         points_df = points_df[::10]
+        print(f"抽样为 {len(points_df)} 个轨迹点")
 
-    # 把所有 target 匹配的行政区合并到一张图
     filtered_regions = []
     for target in target_names:
-        matched = [r for r in admin_regions_list if _match_target(r['row']['ext_path'], target)]
+        # match target but exclude any that match ignore_names
+        if ignore_names is not None:
+            matched = [r for r in admin_regions_list
+                       if _match_target(r['row']['ext_path'], target)
+                       and not any(_match_target(r['row']['ext_path'], ign) for ign in ignore_names)]
+        else:
+            matched = [r for r in admin_regions_list if _match_target(r['row']['ext_path'], target)]
         if not matched:
             print(f"未找到匹配 '{target}' 的行政区")
         filtered_regions.extend(matched)
@@ -255,7 +276,7 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
         print("没有匹配到任何行政区，退出")
         return
 
-    label = '+'.join(target_names)
+    label = '-'.join(target_names)
     file_name = '_'.join(base_file_names + [label])
     if show_points:
         file_name += '_轨迹点'
@@ -271,7 +292,7 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
            (lats_all >= miny) & (lats_all <= maxy)
     lons_cand = lons_all[mask]
     lats_cand = lats_all[mask]
-    print(f"  bbox粗筛后剩 {len(lons_cand)}/{len(lons_all)} 个点")
+    print(f"粗筛后剩 {len(lons_cand)}/{len(lons_all)} 个点")
 
     print("筛选点...")
     tree = STRtree(geoms)
@@ -288,7 +309,13 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
     print(f"目标行政区内共 {len(lons)} 个点")
 
     print("绘制地图...")
-    fig, ax = plt.subplots(figsize=(15, 15))
+    pad_x = (maxx - minx) * 0.05
+    pad_y = (maxy - miny) * 0.05
+    x_range = (maxx + pad_x) - (minx - pad_x)
+    y_merc_range = mercator_forward(maxy + pad_y) - mercator_forward(miny - pad_y)
+    fig_width = 25
+    fig_height = fig_width * y_merc_range / x_range
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     green_patches = []
     for idx, region in enumerate(filtered_regions):
         geom = region['geom']
@@ -299,8 +326,6 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
         ax.add_collection(PatchCollection(green_patches, match_original=True, zorder=0))
     if show_points:
         ax.scatter(lons, lats, s=point_size, color='red', zorder=5, alpha=0.6)
-    pad_x = (maxx - minx) * 0.05
-    pad_y = (maxy - miny) * 0.05
     ax.set_xlim(minx - pad_x, maxx + pad_x)
     ax.set_ylim(miny - pad_y, maxy + pad_y)
     ax.set_aspect('equal')
@@ -315,7 +340,6 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=1
 if __name__ == '__main__':
     border_type = 'gcj'
     path_type = border_type
-    # border_data = read_base_border_csv(f'border_data/ok_geo_{border_type}.csv')
     border_data = read_base_border_csvs([
         f'border_data/mainland/ok_geo_mainland_{border_type}.csv',
         f'border_data/taiwan/taiwan_boundaries_{border_type}.csv',
@@ -323,5 +347,14 @@ if __name__ == '__main__':
     ])
     path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
 
-    # visualize_with_points(border_data, path_data, show_points=False)
-    visualize_with_points(border_data, path_data, show_points=True, target_names=['大阪府'])
+    visualize_with_points(border_data, path_data, show_points=False)
+
+    # visualize_with_points(border_data, path_data, show_points=True, target_names=['金門縣'])
+    # visualize_with_points(border_data, path_data, show_points=True, target_names=['金门县'])
+    # visualize_with_points(border_data, path_data, show_points=True, target_names=['連江縣'])
+    # visualize_with_points(border_data, path_data, show_points=True, target_names=['连江县'])
+    
+    # visualize_with_points(border_data, path_data, show_points=False, target_names=['日本'])
+    # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
+    # visualize_with_points(border_data, path_data, show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands)
+
