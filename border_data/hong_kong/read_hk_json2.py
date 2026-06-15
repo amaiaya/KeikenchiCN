@@ -67,17 +67,10 @@ def export_boundaries_csv(items, outpath):
     """
     rows = []
     for props, geom in items:
-        path_list = [props.get('county', ''), props.get('town', ''), props.get('village', '')]
-        path_list = [p for p in path_list if p and p != '']
+        path_list = ['香港特別行政區', props['地區']]
+        path_list = [p for p in path_list if p and p != 'null']
         name = path_list[-1]
         ext_path = ' '.join(path_list)
-        
-        name = props.get('county') if isinstance(props, dict) else ''
-        # ext_path: for Kinmen(金門縣) and Lienchiang(連江縣) use 福建省, else 臺灣省
-        if props.get('county', '') in ('金門縣', '連江縣'):
-            ext_path = f'臺 福建省 {name}'
-        else:
-            ext_path = f'臺 臺灣省 {name}'
         # polygon: one polygon as "lon lat,lon lat,..."; multiple polygons separated by ;
         poly_parts = []
         if geom.geom_type == 'Polygon':
@@ -88,7 +81,7 @@ def export_boundaries_csv(items, outpath):
                 coords = [(c[0], c[1]) for c in p.exterior.coords]
                 poly_parts.append(','.join(f"{lon} {lat}" for lon, lat in coords))
         polygon = ';'.join(poly_parts)
-        rows.append({'id': 830000, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
+        rows.append({'id': -1, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
 
     # write CSV
     with open(outpath, 'w', encoding='utf-8-sig', newline='') as f:
@@ -103,15 +96,10 @@ def convert_to_gcj_and_export(items, outpath_gcj):
     """Convert WGS coordinates to GCJ and export to CSV"""
     rows = []
     for props, geom in items:
-        path_list = [props.get('county', ''), props.get('town', ''), props.get('village', '')]
-        path_list = [p for p in path_list if p and p != '']
+        path_list = ['香港特別行政區', props['地區']]
+        path_list = [p for p in path_list if p and p != 'null']
         name = path_list[-1]
         ext_path = ' '.join(path_list)
-        # ext_path: for Kinmen(金門縣) and Lienchiang(連江縣) use 福建省, else 臺灣省
-        if props.get('county', '') in ('金門縣', '連江縣'):
-            ext_path = f'臺 福建省 {name}'
-        else:
-            ext_path = f'臺 臺灣省 {name}'
         # polygon: convert to GCJ and format as "lon lat,lon lat,..."; multiple polygons separated by ;
         poly_parts = []
         if geom.geom_type == 'Polygon':
@@ -126,7 +114,7 @@ def convert_to_gcj_and_export(items, outpath_gcj):
                 gcj_coords = wgs2gcj(coords_array)
                 poly_parts.append(','.join(f"{lon} {lat}" for lon, lat in gcj_coords))
         polygon = ';'.join(poly_parts)
-        rows.append({'id': 830000, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
+        rows.append({'id': -1, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
 
     # write CSV
     with open(outpath_gcj, 'w', encoding='utf-8-sig', newline='') as f:
@@ -139,17 +127,17 @@ def convert_to_gcj_and_export(items, outpath_gcj):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: python read_tw_json.py path/to/file.geojson')
+        print('Usage: python read_jp_json.py path/to/file.geojson')
         sys.exit(1)
     path = sys.argv[1]
     items = read_geojson(path)
     print(f'Loaded {len(items)} geometries from {path}')
-    export_boundaries_csv(items, 'taiwan_boundaries_wgs.csv')
-    # convert_to_gcj_and_export(items, 'taiwan_boundaries_gcj.csv')
+    export_boundaries_csv(items, 'hk_boundaries_wgs.csv')
+    # convert_to_gcj_and_export(items, 'nk_boundaries_gcj.csv')
 
     # 列出可选项，让用户挑选一个进行可视化
     for i, (props, geom) in enumerate(items):
-        name = props.get('county', '') +' '+ props.get('town', '')
+        name = props['地區']
         print(f"[{i}] {name}")
 
     # 读取用户选择的索引（命令行参数优先）

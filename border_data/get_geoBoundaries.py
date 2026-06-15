@@ -1,6 +1,8 @@
 import csv
 import sys
 import os
+import glob
+import urllib.request
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.collections import PatchCollection
@@ -67,17 +69,10 @@ def export_boundaries_csv(items, outpath):
     """
     rows = []
     for props, geom in items:
-        path_list = [props.get('county', ''), props.get('town', ''), props.get('village', '')]
-        path_list = [p for p in path_list if p and p != '']
+        path_list = [props['shapeGroup'].replace(' ','-'), props['shapeName'].replace(' ','-')]
+        path_list = [p for p in path_list if p and p != 'null']
         name = path_list[-1]
         ext_path = ' '.join(path_list)
-        
-        name = props.get('county') if isinstance(props, dict) else ''
-        # ext_path: for Kinmen(金門縣) and Lienchiang(連江縣) use 福建省, else 臺灣省
-        if props.get('county', '') in ('金門縣', '連江縣'):
-            ext_path = f'臺 福建省 {name}'
-        else:
-            ext_path = f'臺 臺灣省 {name}'
         # polygon: one polygon as "lon lat,lon lat,..."; multiple polygons separated by ;
         poly_parts = []
         if geom.geom_type == 'Polygon':
@@ -88,7 +83,7 @@ def export_boundaries_csv(items, outpath):
                 coords = [(c[0], c[1]) for c in p.exterior.coords]
                 poly_parts.append(','.join(f"{lon} {lat}" for lon, lat in coords))
         polygon = ';'.join(poly_parts)
-        rows.append({'id': 830000, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
+        rows.append({'id': -1, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
 
     # write CSV
     with open(outpath, 'w', encoding='utf-8-sig', newline='') as f:
@@ -103,15 +98,10 @@ def convert_to_gcj_and_export(items, outpath_gcj):
     """Convert WGS coordinates to GCJ and export to CSV"""
     rows = []
     for props, geom in items:
-        path_list = [props.get('county', ''), props.get('town', ''), props.get('village', '')]
-        path_list = [p for p in path_list if p and p != '']
+        path_list = [props['shapeGroup'].replace(' ','-'), props['shapeName'].replace(' ','-')]
+        path_list = [p for p in path_list if p and p != 'null']
         name = path_list[-1]
         ext_path = ' '.join(path_list)
-        # ext_path: for Kinmen(金門縣) and Lienchiang(連江縣) use 福建省, else 臺灣省
-        if props.get('county', '') in ('金門縣', '連江縣'):
-            ext_path = f'臺 福建省 {name}'
-        else:
-            ext_path = f'臺 臺灣省 {name}'
         # polygon: convert to GCJ and format as "lon lat,lon lat,..."; multiple polygons separated by ;
         poly_parts = []
         if geom.geom_type == 'Polygon':
@@ -126,7 +116,7 @@ def convert_to_gcj_and_export(items, outpath_gcj):
                 gcj_coords = wgs2gcj(coords_array)
                 poly_parts.append(','.join(f"{lon} {lat}" for lon, lat in gcj_coords))
         polygon = ';'.join(poly_parts)
-        rows.append({'id': 830000, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
+        rows.append({'id': -1, 'pid': -1, 'deep': 2, 'name': name, 'ext_path': ext_path, 'geo': '', 'polygon': polygon})
 
     # write CSV
     with open(outpath_gcj, 'w', encoding='utf-8-sig', newline='') as f:
@@ -137,58 +127,64 @@ def convert_to_gcj_and_export(items, outpath_gcj):
     print(f'Exported {len(rows)} rows to {outpath_gcj}')
 
 
+def download_geoboundaries(iso3, outdir):
+    """Query the geoBoundaries API for the given ISO3 code and download all
+    GeoJSON files into outdir.
+
+    Args:
+        iso3 (str): three-letter country code
+        outdir (str): directory to download GeoJSON files into
+
+    Returns:
+        list of str: paths to the downloaded GeoJSON files
+    """
+    api_url = f'https://www.geoboundaries.org/api/current/gbOpen/{iso3}/ALL/'
+    print(f'Querying {api_url}')
+    with urllib.request.urlopen(api_url) as resp:
+        meta = json.load(resp)
+
+    os.makedirs(outdir, exist_ok=True)
+
+    downloaded = []
+    for entry in meta:
+        url = entry.get('gjDownloadURL')
+        if not url:
+            continue
+        filename = os.path.basename(url)
+        dest = os.path.join(outdir, filename)
+        print(f'Downloading {url} -> {dest}')
+        urllib.request.urlretrieve(url, dest)
+        downloaded.append(dest)
+
+    return downloaded
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: python read_tw_json.py path/to/file.geojson')
+        print('Usage: python get_geoBoundaries.py XXX')
         sys.exit(1)
-    path = sys.argv[1]
-    items = read_geojson(path)
-    print(f'Loaded {len(items)} geometries from {path}')
-    export_boundaries_csv(items, 'taiwan_boundaries_wgs.csv')
-    # convert_to_gcj_and_export(items, 'taiwan_boundaries_gcj.csv')
+    iso3 = sys.argv[1]
+    outdir = iso3
 
-    # 列出可选项，让用户挑选一个进行可视化
-    for i, (props, geom) in enumerate(items):
-        name = props.get('county', '') +' '+ props.get('town', '')
-        print(f"[{i}] {name}")
+    download_geoboundaries(iso3, outdir)
 
-    # 读取用户选择的索引（命令行参数优先）
-    idx = None
-    if len(sys.argv) >= 3:
-        try:
-            idx = int(sys.argv[2])
-        except Exception:
-            idx = None
-
-    if idx is None:
-        try:
-            idx = int(input('请选择要可视化的索引编号: '))
-        except Exception:
-            print('无效输入，退出')
-            sys.exit(1)
-
-    if idx < 0 or idx >= len(items):
-        print('索引超出范围')
+    # 对下载目录内所有 geojson 文件执行原有的 CSV 生成逻辑
+    geojson_files = sorted(
+        glob.glob(os.path.join(outdir, '*.geojson')) +
+        glob.glob(os.path.join(outdir, '*.json'))
+    )
+    if not geojson_files:
+        print(f'No GeoJSON files found in {outdir}')
         sys.exit(1)
 
-    props, geom = items[idx]
-    print(f'Visualizing index {idx}, properties: {props}')
-
-    # 绘制几何形状（支持 Polygon / MultiPolygon）
-    fig, ax = plt.subplots()
-    patches = []
-    if geom.geom_type == 'Polygon':
-        x, y = geom.exterior.xy
-        ax.fill(x, y, alpha=0.6, edgecolor='k')
-    elif geom.geom_type == 'MultiPolygon':
-        for poly in geom.geoms:
-            x, y = poly.exterior.xy
-            # ax.fill(x, y, alpha=0.6, edgecolor='k')
-            ax.plot(x, y, color='k')
-    else:
-        print('不支持的几何类型，无法可视化')
-        sys.exit(1)
-
-    ax.set_aspect('equal')
-    plt.show()
+    for path in geojson_files:
+        items = read_geojson(path)
+        if not items:
+            print(f'No geometries loaded from {path}, skipping')
+            continue
+        name_ISO = items[0][0]['shapeGroup']
+        shape_type = items[0][0]['shapeType']
+        print(f'Loaded {len(items)} geometries from {path}')
+        outpath = os.path.join(outdir, f'{name_ISO}_{shape_type}_boundaries_wgs.csv')
+        export_boundaries_csv(items, outpath)
 
