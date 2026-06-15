@@ -376,11 +376,9 @@ if __name__ == '__main__':
         f'border_data/south_korea/sk_boundaries_{border_type}.csv',
         f'border_data/north_korea/nk_boundaries_{border_type}.csv',
     ])
-    path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
+    path_data = read_points_csv(f'fwss_reader/loca_20260614_{path_type}.csv')
     label_json='add_labels/add_label_list_fullname.json'
     
-    
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=150, label_json=label_json)
 
     china_provinces = [
         "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
@@ -392,14 +390,16 @@ if __name__ == '__main__':
         "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
         "香港特别行政区", "澳门特别行政区", "臺灣省"
     ]
-    # for p in china_provinces:
-    #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, target_names=[p], label_json=label_json)
+    for p in china_provinces:
+        visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, target_names=[p], label_json=label_json)
+
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=150, label_json=label_json)
 
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金门县'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['连江县'])
-    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣','连江县'])
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣','连江县'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣','金门县'])
     
     

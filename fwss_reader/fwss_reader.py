@@ -10,7 +10,7 @@ import struct
 import math
 from pathlib import Path
 from typing import List, Tuple
-
+import re
 
 # 常量定义
 MAP_WIDTH = 512
@@ -143,8 +143,9 @@ if __name__ == '__main__':
             print(f"前5个坐标:")
             for i, (lng, lat) in enumerate(coords[:5]):
                 print(f"  {i+1}. ({lng:.6f}, {lat:.6f})")
-                
-        output_path = sys.argv[2] if len(sys.argv) > 2 else None
+        
+        fwss_date = re.search(r'-20\d{6}', sys.argv[1]).group()[1:]
+        output_path = f'loca_{fwss_date}_wgs.csv'
 
         if output_path:
             with open(output_path, 'w', encoding='utf-8') as f:
