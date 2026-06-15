@@ -379,6 +379,9 @@ if __name__ == '__main__':
     path_data = read_points_csv(f'fwss_reader/loca_20260613_{path_type}.csv')
     label_json='add_labels/add_label_list_fullname.json'
     
+    
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=150, label_json=label_json)
+
     china_provinces = [
         "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
         "江苏省", "浙江省", "安徽省", "福建省", "江西省",
@@ -389,27 +392,23 @@ if __name__ == '__main__':
         "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
         "香港特别行政区", "澳门特别行政区", "臺灣省"
     ]
-
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=150, label_json=label_json)
     # for p in china_provinces:
-        # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, target_names=[p], label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['浙江省'], label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['湖北省'], label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['陕西省'], label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['广东省'], label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['山东省'], label_json=label_json)
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=50, target_names=['上海市'], label_json=label_json)
+    #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, target_names=[p], label_json=label_json)
 
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['金門縣'])
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['金门县'])
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['連江縣'])
-    # visualize_with_points(border_data, path_data, show_points=True, target_names=['连江县'])
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣'])
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金门县'])
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣'])
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['连江县'])
+    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣','连江县'])
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣','金门县'])
+    
     
     # visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
     # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
     
+    
     # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/县级可视化', fig_width=100, target_names=['Vietnam'])
-    visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/汉字文化圈', fig_width=150, label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/汉字文化圈', fig_width=150, label_json=label_json)
 
 
