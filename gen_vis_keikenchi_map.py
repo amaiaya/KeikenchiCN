@@ -372,8 +372,8 @@ if __name__ == '__main__':
         f'border_data/mainland/china_mainland_boundaries_{border_type}.csv',
         f'border_data/hong_kong/hk_boundaries_{border_type}.csv',
         f'border_data/macau/mc_boundaries_{border_type}.csv',
-        # f'border_data/taiwan/taiwan_town_boundaries_{border_type}.csv',
-        # f'border_data/japan/japan_boundaries_{border_type}.csv',
+        f'border_data/taiwan/taiwan_town_boundaries_{border_type}.csv',
+        f'border_data/japan/japan_boundaries_{border_type}.csv',
         # f'border_data/vietnam/vn_1_boundaries_{border_type}.csv',
         # f'border_data/south_korea/sk_boundaries_{border_type}.csv',
         # f'border_data/north_korea/nk_boundaries_{border_type}.csv',
@@ -393,10 +393,15 @@ if __name__ == '__main__':
     #     "香港特别行政区", "澳门特别行政区", "臺灣省"
     # ]
     # for p in china_provinces:
-    #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
+    for p in ['陕西省']:
+        visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
+        visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json)
-    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf')
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='eps') # 体积太大
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg')
+    visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
 
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金门县'])
