@@ -393,7 +393,7 @@ if __name__ == '__main__':
     #     "香港特别行政区", "澳门特别行政区", "臺灣省"
     # ]
     # for p in china_provinces:
-    for p in ['山东省']:
+    for p in ['山东省','河南省']:
         visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
         visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
