@@ -44,7 +44,9 @@ for list_name, items in data.items():
             resolved[list_name].append(item)
 
 resolved['stayed'] += [
-    '西安市 长安区'
+    '西安市 长安区',
+    '山东省 青岛市 市南区',
+    '河南省 焦作市 修武县',
 ]
 
 resolved['visited'] += [
@@ -64,7 +66,10 @@ resolved['visited'] += [
     '甘肃省 张掖市 肃南裕固族自治县',
     '甘肃省 张掖市 临泽县',
     '青海省 西宁市 湟中区',
-    '青海省 海南藏族自治州 共和县'
+    '青海省 海南藏族自治州 共和县',
+    '山东省 菏泽市 牡丹区',
+    '山东省 枣庄市 台儿庄区',
+    '山东省 潍坊市 奎文区'
 ]
 resolved['alighted'] += [
     '辽宁省 大连市 甘井子区'
