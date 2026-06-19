@@ -228,7 +228,7 @@ def _get_label_index(ext_path, label_map):
 def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-1,
                           point_size=0.5, prefix_name='县级可视化', target_names=None,
                           ignore_names=None, points_within_only=True, fig_width=-1, format='jpg',
-                          label_json=None, font_scale=1):
+                          label_json=None, font_scale=1, hide_never=False):
     base_file_names = [prefix_name, f'base-{admin_regions[1]}', f'path-{points_df[1]}']
     points_df = points_df[0]
     admin_regions_list = admin_regions[0]
@@ -290,16 +290,46 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
 
     print(f"共 {len(has_point)} 个行政区含点，{len(lons)} 个点落入")
 
-    if target_names is None:
-        out_csv_name = '_'.join(['经过县区名'] + base_file_names[1:]) + '.csv'
-        has_point_names = [regions[idx]['row']['ext_path'] for idx in has_point]
-        has_point_numbers = [n_in_areas.get(idx, 0) for idx in has_point]
-        df = pd.DataFrame({'name': has_point_names, 'count': has_point_numbers})
-        df.sort_values('name', inplace=True)
-        df.to_csv(out_csv_name, index=False, encoding='utf-8')
-
     # 加载标签映射
     label_map = load_label_map(label_json, admin_regions_list) if label_json else []
+
+    # 图例标签（顺序与 type_colors 一致，最后一项为未踏）
+    legend_labels = ['住居（居住过）', '宿泊（住宿过）', '訪問（游玩过）', '接地（休息、换车等）', '通過（路过）', '未踏（没去过）']
+    NO_LABEL_INDEX = len(LABEL_ORDER)        # 5，未踏：区域内无点且未在json中加标签
+    PASSED_INDEX = LABEL_ORDER.index('passed')
+
+    # 为每个区域确定标签索引：json标签优先；其次区域内有点则默认 passed；否则未踏
+    region_labels = []
+    for idx, region in enumerate(regions):
+        json_label = _get_label_index(region['row']['ext_path'], label_map) if label_map else None
+        if json_label is not None:
+            region_labels.append(json_label)
+        elif idx in has_point:
+            region_labels.append(PASSED_INDEX)
+        else:
+            region_labels.append(NO_LABEL_INDEX)
+
+    # 各标签对应的区域数（索引 0-4 为五种标签，5 为未踏）
+    label_counts = [region_labels.count(i) for i in range(len(legend_labels))]
+
+    if target_names is None:
+        # 标签短名：取 legend_labels 括号前的部分（住居、宿泊…）
+        short_labels = [lbl.split('（')[0] for lbl in legend_labels]
+        out_csv_name = '_'.join(['经过县区名'] + base_file_names[1:]) + '.csv'
+        out_rows = []
+        for idx, region in enumerate(regions):
+            lbl = region_labels[idx]
+            if lbl == NO_LABEL_INDEX:
+                continue  # 未踏（无点且无标签）不输出
+            # 有标签但无点的区域 count 为 0，也会被输出
+            out_rows.append({
+                'name': region['row']['ext_path'],
+                'count': n_in_areas.get(idx, 0),
+                'label': short_labels[lbl],
+            })
+        df = pd.DataFrame(out_rows, columns=['name', 'count', 'label'])
+        df.sort_values('name', inplace=True)
+        df.to_csv(out_csv_name, index=False, encoding='utf-8')
 
     print("绘制地图...")
     pad_x = (maxx - minx) * 0.05
@@ -310,18 +340,10 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
     colored_patches = []
     for idx, region in enumerate(regions):
         geom = region['geom']
-        ext_path = region['row']['ext_path']
-        json_label = _get_label_index(ext_path, label_map) if label_map else None
-
-        if json_label is not None:
-            # 出现在json中：按json标签着色（无论有没有点）
-            color = type_colors[json_label]
-            colored_patches.extend(geom_to_mpl_patches(geom, facecolor=color, edgecolor='none', alpha=1))
-        elif idx in has_point:
-            # 内部有点但未出现在json：默认passed颜色
-            color = type_colors[LABEL_ORDER.index('passed')]
-            colored_patches.extend(geom_to_mpl_patches(geom, facecolor=color, edgecolor='none', alpha=1))
-        # 内部无点且不在json中：不着色
+        lbl = region_labels[idx]
+        # lbl 为 0-4：按对应标签颜色填充；为未踏(NO_LABEL_INDEX)：不着色
+        if lbl != NO_LABEL_INDEX:
+            colored_patches.extend(geom_to_mpl_patches(geom, facecolor=type_colors[lbl], edgecolor='none', alpha=1))
         plot_geom_boundary(ax, geom, color='black', lw=0.8)
     if colored_patches:
         ax.add_collection(PatchCollection(colored_patches, match_original=True, zorder=0))
@@ -337,16 +359,30 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
     ax.grid(False)
 
     # 图例：根据图片尺寸自动缩放字体
-    legend_labels = ['住居（居住过）', '宿泊（住宿过）', '訪問（游玩过）', '接地（休息、换车等）', '通過（路过）', '未踏（没去过）']
     legend_colors = type_colors + ['#ffffff']
+
+    # 世界等级 = 5*住居 + 4*宿泊 + 3*訪問 + 2*接地 + 1*通過（未踏不计）
+    level_weights = [5, 4, 3, 2, 1]
+    world_level = sum(w * label_counts[i] for i, w in enumerate(level_weights))
+
+    IDEO_SPACE = '　'    # 全角空格
+    label_width = max(len(lbl) for lbl in legend_labels)
+    num_width = max(len(str(c)) for c in label_counts)
+    legend_texts = [
+        f"{lbl.ljust(label_width, IDEO_SPACE)}{IDEO_SPACE}{str(cnt)} 个区域"
+        for lbl, cnt in zip(legend_labels, label_counts)
+    ]
+    if hide_never:
+        legend_texts[-1] = '未踏（没去过）'
     legend_patches = [
         Patch(facecolor=color, edgecolor='black', linewidth=fig_width * 0.04 * font_scale,
-              label=label)
-        for color, label in zip(legend_colors, legend_labels)
+              label=text)
+        for color, text in zip(legend_colors, legend_texts)
     ]
-    font_size = fig_width * 1.2 * font_scale
+    font_size = fig_width * 1 * font_scale
     font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size)
-    ax.legend(
+    title_font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size * 1.3)
+    legend = ax.legend(
         handles=legend_patches,
         # loc='lower right',
         fontsize=font_size,
@@ -356,8 +392,11 @@ def visualize_with_points(admin_regions, points_df, show_points=True, sampling=-
         handlelength=2.0,
         handleheight=1.2,
         borderpad=0.6,
-        prop=font
+        prop=font,
+        title=f"世界等级  {world_level}",
     )
+    legend.get_title().set_fontproperties(title_font)
+    legend._legend_box.align = 'left'
 
     fig.tight_layout()
     fig.savefig(file_name)
@@ -382,25 +421,25 @@ if __name__ == '__main__':
     path_data = read_points_csv(f'fwss_reader/loca_20260614_{path_type}.csv')
     label_json='add_labels/add_label_list_fullname.json'
     
-    # china_provinces = [
-    #     "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
-    #     "江苏省", "浙江省", "安徽省", "福建省", "江西省",
-    #     "山东省", "河南省", "湖北省", "湖南省", "广东省",
-    #     "海南省", "四川省", "贵州省", "云南省", "陕西省",
-    #     "甘肃省", "青海省", 
-    #     "北京市", "天津市", "上海市", "重庆市", 
-    #     "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
-    #     "香港特别行政区", "澳门特别行政区", "臺灣省"
-    # ]
-    # for p in china_provinces:
-    for p in ['广西省']:
+    china_provinces = [
+        "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
+        "江苏省", "浙江省", "安徽省", "福建省", "江西省",
+        "山东省", "河南省", "湖北省", "湖南省", "广东省",
+        "海南省", "四川省", "贵州省", "云南省", "陕西省",
+        "甘肃省", "青海省", 
+        "北京市", "天津市", "上海市", "重庆市", 
+        "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
+        "香港特別行政區", "澳門特別行政區", "臺灣省"
+    ]
+    for p in china_provinces:
+    # for p in ['广西壮族自治区']:
         visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
         visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
     visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf')
     visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg')
     visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg')
-    # visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
+    visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
 
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣'])
