@@ -1,5 +1,5 @@
 # 展示
-![Keikenchi Map at 2026-06-19.](./县级可视化_base-WGS_path-WGS.svg)
+![Keikenchi Map at 2026-06-19.](./县级可视化_base-WGS_path-WGS.jpg)
 # 参考
 * Fog Machine：https://github.com/CaviarChen/fog-machine
 * 中国大陆县区级行政区划：https://github.com/xiangyuecn/AreaCity-JsSpider-StatsGov
