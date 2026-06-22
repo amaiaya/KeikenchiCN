@@ -69,7 +69,7 @@ def export_boundaries_csv(items, outpath):
     """
     rows = []
     for props, geom in items:
-        path_list = [props['shapeGroup'].replace(' ','-'), props['shapeName'].replace(' ','-')]
+        path_list = [str(props['shapeGroup']).replace(' ','-'), str(props['shapeName']).replace(' ','-')]
         path_list = [p for p in path_list if p and p != 'null']
         name = path_list[-1]
         ext_path = ' '.join(path_list)
