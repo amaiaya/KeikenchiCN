@@ -32,6 +32,22 @@ def mercator_inverse(y):
     """
     return np.rad2deg(2 * np.arctan(np.exp(np.deg2rad(y))) - np.pi / 2)
 
+# 跨 180 度经线的区域在 GeoJSON 里被切成东(接近 +180)、西(接近 -180)两半，
+# 西半部分经度为负。把经度小于该阈值的点整体 +360，使其接到东半球后面，
+# 这样不可避免的分割线就从 180 度挪到了数据自然边界(约 -168.97 度)。
+# 阈值取 -90：中国数据本身全在东半球(正经度)，唯一的负经度就是这块越界部分。
+ANTIMERIDIAN_WRAP_LON = -90
+
+def unwrap_lon(lon):
+    """把越过 180 度经线、被切到西半球(经度 < 阈值)的经度整体 +360。
+    对已经是正经度的点无影响，且幂等(重复调用结果不变)。"""
+    lon = np.asarray(lon, dtype=float)
+    return np.where(lon < ANTIMERIDIAN_WRAP_LON, lon + 360.0, lon)
+
+def unwrap_coords(coords):
+    """对 [(lon, lat), ...] 坐标列表做经度展开"""
+    return [(float(unwrap_lon(lon)), lat) for lon, lat in coords]
+
 def parse_polygon(polygon_str):
     """解析polygon字符串为区块列表，每个区块是一个坐标列表"""
     if not polygon_str or polygon_str.strip() == '':
@@ -146,7 +162,7 @@ def read_base_border_csvs(csv_files):
                 polys = []
                 for block in blocks:
                     try:
-                        p = make_valid_polygon(block)
+                        p = make_valid_polygon(unwrap_coords(block))
                         if not p.is_empty:
                             polys.append(p)
                     except Exception:
@@ -289,7 +305,7 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
     if has_points_df:
         points_df = points_df[::sampling]
         print(f"抽样为 {len(points_df)} 个轨迹点")
-        lons_all = points_df[lon_col].astype(float).to_numpy()
+        lons_all = unwrap_lon(points_df[lon_col].astype(float).to_numpy())
         lats_all = points_df[lat_col].astype(float).to_numpy()
 
         tree = STRtree(geoms)
