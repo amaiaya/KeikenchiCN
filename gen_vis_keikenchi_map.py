@@ -4,7 +4,6 @@ import os
 import json
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon, Patch
-from matplotlib.collections import PatchCollection
 import matplotlib.font_manager as fm
 from shapely.geometry import Polygon, Point, MultiPolygon
 from shapely.ops import unary_union
@@ -12,6 +11,9 @@ from shapely import STRtree
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
+import cartopy.crs as ccrs
+from collections import defaultdict
+
 
 csv.field_size_limit(sys.maxsize)
 type_colors = ['#e84c3d', '#d58337', '#f3c218', '#30cc70', '#3598db'] # lived, stayed, visited, alighted, passed
@@ -35,14 +37,14 @@ def mercator_inverse(y):
 # 跨 180 度经线的区域在 GeoJSON 里被切成东(接近 +180)、西(接近 -180)两半，
 # 西半部分经度为负。把经度小于该阈值的点整体 +360，使其接到东半球后面，
 # 这样不可避免的分割线就从 180 度挪到了数据自然边界(约 -168.97 度)。
-# 阈值取 -90：中国数据本身全在东半球(正经度)，唯一的负经度就是这块越界部分。
-ANTIMERIDIAN_WRAP_LON = -90
+ANTIMERIDIAN_WRAP_LON = -167
 
 def unwrap_lon(lon):
     """把越过 180 度经线、被切到西半球(经度 < 阈值)的经度整体 +360。
     对已经是正经度的点无影响，且幂等(重复调用结果不变)。"""
     lon = np.asarray(lon, dtype=float)
     return np.where(lon < ANTIMERIDIAN_WRAP_LON, lon + 360.0, lon)
+    # return lon
 
 def unwrap_coords(coords):
     """对 [(lon, lat), ...] 坐标列表做经度展开"""
@@ -244,7 +246,7 @@ def _get_label_index(ext_path, label_map):
 def visualize_with_points(admin_regions, points_df=None, show_points=True, sampling=-1,
                           point_size=0.5, prefix_name='县级可视化', target_names=None,
                           ignore_names=None, points_within_only=True, fig_width=-1, format='jpg',
-                          label_json=None, font_scale=1, hide_never=False):
+                          label_json=None, font_scale=1, hide_never=False, legend_loc='best', projection='m'):
     # 没有传入轨迹点时，禁用所有与点相关的操作
     has_points_df = points_df is not None
     if not has_points_df:
@@ -375,39 +377,65 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
     print("绘制地图...")
     pad_x = (maxx - minx) * 0.05
     pad_y = (maxy - miny) * 0.05
-    x_range = (maxx + pad_x) - (minx - pad_x)
-    y_merc_range = mercator_forward(maxy + pad_y) - mercator_forward(miny - pad_y)
-    fig, ax = plt.subplots(figsize=(fig_width, fig_width * y_merc_range / x_range))
-    colored_patches = []
+    # print(maxx,minx,maxy,miny)
+
+    data_crs = ccrs.PlateCarree()
+    central_lon = 11.03
+    if projection == 'r':
+        proj = ccrs.Robinson(central_longitude=central_lon)
+    elif projection == 'm':
+        proj = ccrs.Mercator(central_longitude=central_lon, min_latitude=-80, max_latitude=84)
+    else:
+        raise ValueError
+    # Robinson 的有效经度范围是 central_longitude ± 180（这里约 [-168.97, 191.03]）。
+    # 俄罗斯东端经度(unwrap 后约 191)已贴着上边界，加 padding 后会越界，
+    # 被 cartopy 回绕到地图另一侧，导致投影范围横跨整个世界。
+    # 这里把加 padding 后的经度夹到有效范围内。
+    eps = 1e-6
+    ext_minx = max(minx - pad_x, central_lon - 180 + eps)
+    ext_maxx = min(maxx + pad_x, central_lon + 180 - eps)
+    ext_miny = miny - pad_y
+    ext_maxy = maxy + pad_y
+
+    corners = proj.transform_points(
+        data_crs,
+        np.array([ext_minx, ext_maxx, ext_minx, ext_maxx]),
+        np.array([ext_miny, ext_miny, ext_maxy, ext_maxy]),
+    )
+    x_range = corners[:, 0].max() - corners[:, 0].min()
+    y_range = corners[:, 1].max() - corners[:, 1].min()
+
+    fig, ax = plt.subplots(
+        figsize=(fig_width, fig_width * y_range / x_range),
+        subplot_kw={'projection': proj},
+    )
+
+    groups = defaultdict(list)
     for idx, region in enumerate(regions):
-        geom = region['geom']
         lbl = region_labels[idx]
-        if lbl != NO_LABEL_INDEX:
-            colored_patches.extend(geom_to_mpl_patches(geom, facecolor=type_colors[lbl], edgecolor='none', alpha=1))
-        plot_geom_boundary(ax, geom, color='black', lw=0.8)
-    if colored_patches:
-        ax.add_collection(PatchCollection(colored_patches, match_original=True, zorder=0))
+        fc = type_colors[lbl] if lbl != NO_LABEL_INDEX else 'none'
+        groups[fc].append(region['geom'])
+    for fc, geoms in groups.items():
+        ax.add_geometries(geoms, crs=data_crs,
+                          facecolor=fc, edgecolor='black', linewidth=0.8, zorder=0)
+
     if show_points:
-        if points_within_only:
-            ax.scatter(lons, lats, s=point_size, color='red', zorder=5, alpha=0.6)
-        else:
-            ax.scatter(lons_all, lats_all, s=point_size, color='red', zorder=5, alpha=0.6)
-    ax.set_xlim(minx - pad_x, maxx + pad_x)
-    ax.set_ylim(miny - pad_y, maxy + pad_y)
-    ax.set_aspect('equal')
-    ax.set_yscale('function', functions=(mercator_forward, mercator_inverse))
+        pts_lon, pts_lat = (lons, lats) if points_within_only else (lons_all, lats_all)
+        ax.scatter(pts_lon, pts_lat, s=point_size, color='red',
+                   zorder=5, alpha=0.6, transform=data_crs)
+
+    ax.set_extent([ext_minx, ext_maxx, ext_miny, ext_maxy], crs=data_crs)
+    ax.patch.set_visible(False)
+    ax.spines['geo'].set_visible(False)
     ax.grid(False)
 
-    # 图例与世界等级：仅在有标签信息时绘制
     if has_labels:
         legend_colors = type_colors + ['#ffffff']
-
         level_weights = [5, 4, 3, 2, 1]
         world_level = sum(w * label_counts[i] for i, w in enumerate(level_weights))
 
         IDEO_SPACE = '　'
         label_width = max(len(lbl) for lbl in legend_labels)
-        num_width = max(len(str(c)) for c in label_counts)
         legend_texts = [
             f"{lbl.ljust(label_width, IDEO_SPACE)}{IDEO_SPACE}{str(cnt)} 个区域"
             for lbl, cnt in zip(legend_labels, label_counts)
@@ -415,22 +443,16 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
         if hide_never:
             legend_texts[-1] = '未踏（没去过）'
         legend_patches = [
-            Patch(facecolor=color, edgecolor='black', linewidth=fig_width * 0.04 * font_scale,
-                  label=text)
+            Patch(facecolor=color, edgecolor='black', linewidth=fig_width * 0.04 * font_scale, label=text)
             for color, text in zip(legend_colors, legend_texts)
         ]
         font_size = fig_width * 1 * font_scale
         font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size)
         title_font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size * 1.3)
         legend = ax.legend(
-            handles=legend_patches,
-            fontsize=font_size,
-            frameon=False,
-            handlelength=2.0,
-            handleheight=1.2,
-            borderpad=0.6,
-            prop=font,
-            title=f"世界等级  {world_level}",
+            handles=legend_patches, fontsize=font_size, frameon=False,
+            handlelength=2.0, handleheight=1.2, borderpad=0.6, prop=font,
+            title=f"世界等级  {world_level}", loc=legend_loc,
         )
         legend.get_title().set_fontproperties(title_font)
         legend._legend_box.align = 'left'
@@ -478,8 +500,8 @@ if __name__ == '__main__':
     #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
     # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf')
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg')
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg')
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg', legend_loc='lower left')
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg')
     # visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
 
