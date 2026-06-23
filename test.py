@@ -47,10 +47,13 @@ read_list = ['border_data/OSM/Kazakhstan_boundaries_wgs.csv',
             f'border_data/GeoBoundaries/MNG/MNG_ADM2_boundaries_{border_type}.csv',]
 border_data = read_base_border_csvs(read_list)
 label_json='add_labels/add_label_list_fullname.json'
-visualize_with_points(border_data, points_df=None, show_points=False, fig_width=100, format='jpg', prefix_name='test_figs/asia')
+visualize_with_points(border_data, points_df=None, show_points=False, fig_width=100, format='jpg', prefix_name='test_figs/asia_m')
 
 # Russia
-# read_list = ['border_data/GeoBoundaries/RUS/RUS_ADM0_boundaries_wgs.csv',]
+# read_list = [
+#              'border_data/GeoBoundaries/RUS/RUS_ADM0_boundaries_wgs.csv',
+#             #  'border_data/GeoBoundaries/TKM/TKM_ADM2_boundaries_wgs.csv',
+#              ]
 # border_data = read_base_border_csvs(read_list)
 # label_json='add_labels/add_label_list_fullname.json'
 # visualize_with_points(border_data, points_df=None, show_points=False, fig_width=100, format='jpg', prefix_name='test_figs/russia')
