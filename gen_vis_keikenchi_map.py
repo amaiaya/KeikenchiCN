@@ -535,7 +535,7 @@ if __name__ == '__main__':
     visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
     tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
-    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['静岡県','東京都','千葉県','埼玉県','神奈川県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
+    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, target_names=['静岡県','東京都','千葉県','埼玉県','神奈川県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
     
     
     # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/县级可视化', fig_width=100, target_names=['Vietnam'])
