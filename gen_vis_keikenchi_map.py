@@ -13,6 +13,9 @@ from tqdm import tqdm
 import numpy as np
 import cartopy.crs as ccrs
 from collections import defaultdict
+from importlib.metadata import version
+from packaging.version import parse
+
 
 
 csv.field_size_limit(sys.maxsize)
@@ -463,7 +466,23 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
     plt.close(fig)
 
 
+def require(pkg, min_ver):
+    cur = version(pkg)
+    assert parse(cur) >= parse(min_ver), f"{pkg} 版本过低: 当前 {cur}, 需要 >= {min_ver}"
+
+
+def check_env():
+    require('shapely', '2.1.2')
+    require('cartopy', '0.25.0')
+    require('pyproj', '3.7.2')
+    require('matplotlib', '3.10.9')
+    require('numpy', '2.4.6')
+    require('pandas', '3.0.3')
+    
+
 if __name__ == '__main__':
+    check_env()
+    
     border_type = 'wgs'
     path_type = border_type
 
@@ -481,7 +500,7 @@ if __name__ == '__main__':
     ]
     
     border_data = read_base_border_csvs(read_list)
-    path_data = read_points_csv(f'fwss_reader/loca_20260614_{path_type}.csv')
+    path_data = read_points_csv(f'fwss_reader/loca_20260714_{path_type}.csv')
     label_json='add_labels/add_label_list_fullname.json'
         
     china_provinces = [
@@ -499,9 +518,9 @@ if __name__ == '__main__':
     #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
     #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf')
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf', legend_loc='lower left')
     visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg', legend_loc='lower left')
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg')
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg', legend_loc='lower left')
     # visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
 
@@ -513,9 +532,10 @@ if __name__ == '__main__':
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣','金门县'])
     
     
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
-    # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
+    visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
+    tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
+    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['静岡県','東京都','千葉県','埼玉県','神奈川県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
     
     
     # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/县级可视化', fig_width=100, target_names=['Vietnam'])

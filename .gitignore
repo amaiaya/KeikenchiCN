@@ -7,4 +7,5 @@
 *.pdf
 *.eps
 *.svg
+__pycache__/
 !县级可视化_base-WGS_path-WGS.jpg

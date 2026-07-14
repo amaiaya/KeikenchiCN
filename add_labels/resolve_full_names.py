@@ -1,7 +1,7 @@
 import json
 import csv
 
-CSV_FILE = "../经过县区名_base-GCJ_path-GCJ.csv"
+CSV_FILE = "../经过县区名_base-WGS_path-WGS.csv"
 JSON_FILE = "add_label_list.json"
 OUTPUT_FILE = "add_label_list_fullname.json"
 
