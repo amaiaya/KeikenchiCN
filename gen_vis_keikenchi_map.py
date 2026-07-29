@@ -249,7 +249,7 @@ def _get_label_index(ext_path, label_map):
 def visualize_with_points(admin_regions, points_df=None, show_points=True, sampling=-1,
                           point_size=0.5, prefix_name='县级可视化', target_names=None,
                           ignore_names=None, points_within_only=True, fig_width=-1, format='jpg',
-                          label_json=None, font_scale=1, hide_never=False, legend_loc='best', projection='m'):
+                          label_json=None, font_scale=1, hide_never=False, legend_loc='best', projection='m', draw_map=True):
     # 没有传入轨迹点时，禁用所有与点相关的操作
     has_points_df = points_df is not None
     if not has_points_df:
@@ -377,93 +377,97 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
         region_labels = [NO_LABEL_INDEX] * len(regions)
         label_counts = [region_labels.count(i) for i in range(len(legend_labels))]
 
-    print("绘制地图...")
-    pad_x = (maxx - minx) * 0.05
-    pad_y = (maxy - miny) * 0.05
-    # print(maxx,minx,maxy,miny)
+    level_weights = [5, 4, 3, 2, 1]
+    world_level = sum(w * label_counts[i] for i, w in enumerate(level_weights))
+    
+    if draw_map:
+        print("绘制地图...")
+        pad_x = (maxx - minx) * 0.05
+        pad_y = (maxy - miny) * 0.05
+        # print(maxx,minx,maxy,miny)
 
-    data_crs = ccrs.PlateCarree()
-    central_lon = 11.03
-    if projection == 'r':
-        proj = ccrs.Robinson(central_longitude=central_lon)
-    elif projection == 'm':
-        proj = ccrs.Mercator(central_longitude=central_lon, min_latitude=-80, max_latitude=84)
-    else:
-        raise ValueError
-    # Robinson 的有效经度范围是 central_longitude ± 180（这里约 [-168.97, 191.03]）。
-    # 俄罗斯东端经度(unwrap 后约 191)已贴着上边界，加 padding 后会越界，
-    # 被 cartopy 回绕到地图另一侧，导致投影范围横跨整个世界。
-    # 这里把加 padding 后的经度夹到有效范围内。
-    eps = 1e-6
-    ext_minx = max(minx - pad_x, central_lon - 180 + eps)
-    ext_maxx = min(maxx + pad_x, central_lon + 180 - eps)
-    ext_miny = miny - pad_y
-    ext_maxy = maxy + pad_y
+        data_crs = ccrs.PlateCarree()
+        central_lon = 11.03
+        if projection == 'r':
+            proj = ccrs.Robinson(central_longitude=central_lon)
+        elif projection == 'm':
+            proj = ccrs.Mercator(central_longitude=central_lon, min_latitude=-80, max_latitude=84)
+        else:
+            raise ValueError
+        # Robinson 的有效经度范围是 central_longitude ± 180（这里约 [-168.97, 191.03]）。
+        # 俄罗斯东端经度(unwrap 后约 191)已贴着上边界，加 padding 后会越界，
+        # 被 cartopy 回绕到地图另一侧，导致投影范围横跨整个世界。
+        # 这里把加 padding 后的经度夹到有效范围内。
+        eps = 1e-6
+        ext_minx = max(minx - pad_x, central_lon - 180 + eps)
+        ext_maxx = min(maxx + pad_x, central_lon + 180 - eps)
+        ext_miny = miny - pad_y
+        ext_maxy = maxy + pad_y
 
-    corners = proj.transform_points(
-        data_crs,
-        np.array([ext_minx, ext_maxx, ext_minx, ext_maxx]),
-        np.array([ext_miny, ext_miny, ext_maxy, ext_maxy]),
-    )
-    x_range = corners[:, 0].max() - corners[:, 0].min()
-    y_range = corners[:, 1].max() - corners[:, 1].min()
-
-    fig, ax = plt.subplots(
-        figsize=(fig_width, fig_width * y_range / x_range),
-        subplot_kw={'projection': proj},
-    )
-
-    groups = defaultdict(list)
-    for idx, region in enumerate(regions):
-        lbl = region_labels[idx]
-        fc = type_colors[lbl] if lbl != NO_LABEL_INDEX else 'none'
-        groups[fc].append(region['geom'])
-    for fc, geoms in groups.items():
-        ax.add_geometries(geoms, crs=data_crs,
-                          facecolor=fc, edgecolor='black', linewidth=0.8, zorder=0)
-
-    if show_points:
-        pts_lon, pts_lat = (lons, lats) if points_within_only else (lons_all, lats_all)
-        ax.scatter(pts_lon, pts_lat, s=point_size, color='red',
-                   zorder=5, alpha=0.6, transform=data_crs)
-
-    ax.set_extent([ext_minx, ext_maxx, ext_miny, ext_maxy], crs=data_crs)
-    ax.patch.set_visible(False)
-    ax.spines['geo'].set_visible(False)
-    ax.grid(False)
-
-    if has_labels:
-        legend_colors = type_colors + ['#ffffff']
-        level_weights = [5, 4, 3, 2, 1]
-        world_level = sum(w * label_counts[i] for i, w in enumerate(level_weights))
-
-        IDEO_SPACE = '　'
-        label_width = max(len(lbl) for lbl in legend_labels)
-        legend_texts = [
-            f"{lbl.ljust(label_width, IDEO_SPACE)}{IDEO_SPACE}{str(cnt)} 个区域"
-            for lbl, cnt in zip(legend_labels, label_counts)
-        ]
-        if hide_never:
-            legend_texts[-1] = '未踏（没去过）'
-        legend_patches = [
-            Patch(facecolor=color, edgecolor='black', linewidth=fig_width * 0.04 * font_scale, label=text)
-            for color, text in zip(legend_colors, legend_texts)
-        ]
-        font_size = fig_width * 1 * font_scale
-        font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size)
-        title_font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size * 1.3)
-        legend = ax.legend(
-            handles=legend_patches, fontsize=font_size, frameon=False,
-            handlelength=2.0, handleheight=1.2, borderpad=0.6, prop=font,
-            title=f"世界等级  {world_level}", loc=legend_loc,
+        corners = proj.transform_points(
+            data_crs,
+            np.array([ext_minx, ext_maxx, ext_minx, ext_maxx]),
+            np.array([ext_miny, ext_miny, ext_maxy, ext_maxy]),
         )
-        legend.get_title().set_fontproperties(title_font)
-        legend._legend_box.align = 'left'
+        x_range = corners[:, 0].max() - corners[:, 0].min()
+        y_range = corners[:, 1].max() - corners[:, 1].min()
 
-    fig.tight_layout()
-    fig.savefig(file_name)
-    print(f"已保存: {file_name}")
-    plt.close(fig)
+        fig, ax = plt.subplots(
+            figsize=(fig_width, fig_width * y_range / x_range),
+            subplot_kw={'projection': proj},
+        )
+
+        groups = defaultdict(list)
+        for idx, region in enumerate(regions):
+            lbl = region_labels[idx]
+            fc = type_colors[lbl] if lbl != NO_LABEL_INDEX else 'none'
+            groups[fc].append(region['geom'])
+        for fc, geoms in groups.items():
+            ax.add_geometries(geoms, crs=data_crs,
+                            facecolor=fc, edgecolor='black', linewidth=0.8, zorder=0)
+
+        if show_points:
+            pts_lon, pts_lat = (lons, lats) if points_within_only else (lons_all, lats_all)
+            ax.scatter(pts_lon, pts_lat, s=point_size, color='red',
+                    zorder=5, alpha=0.6, transform=data_crs)
+
+        ax.set_extent([ext_minx, ext_maxx, ext_miny, ext_maxy], crs=data_crs)
+        ax.patch.set_visible(False)
+        ax.spines['geo'].set_visible(False)
+        ax.grid(False)
+
+        if has_labels:
+            legend_colors = type_colors + ['#ffffff']
+
+            IDEO_SPACE = '　'
+            label_width = max(len(lbl) for lbl in legend_labels)
+            legend_texts = [
+                f"{lbl.ljust(label_width, IDEO_SPACE)}{IDEO_SPACE}{str(cnt)} 个区域"
+                for lbl, cnt in zip(legend_labels, label_counts)
+            ]
+            if hide_never:
+                legend_texts[-1] = '未踏（没去过）'
+            legend_patches = [
+                Patch(facecolor=color, edgecolor='black', linewidth=fig_width * 0.04 * font_scale, label=text)
+                for color, text in zip(legend_colors, legend_texts)
+            ]
+            font_size = fig_width * 1 * font_scale
+            font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size)
+            title_font = fm.FontProperties(fname='SourceHanSansCN-Bold.otf', size=font_size * 1.3)
+            legend = ax.legend(
+                handles=legend_patches, fontsize=font_size, frameon=False,
+                handlelength=2.0, handleheight=1.2, borderpad=0.6, prop=font,
+                title=f"世界等级  {world_level}", loc=legend_loc,
+            )
+            legend.get_title().set_fontproperties(title_font)
+            legend._legend_box.align = 'left'
+
+        fig.tight_layout()
+        fig.savefig(file_name)
+        print(f"已保存: {file_name}")
+        plt.close(fig)
+    
+    return [world_level] + label_counts
 
 
 def require(pkg, min_ver):
@@ -482,7 +486,7 @@ def check_env():
 
 if __name__ == '__main__':
     check_env()
-    
+    date = '20260728'
     border_type = 'wgs'
     path_type = border_type
 
@@ -500,8 +504,8 @@ if __name__ == '__main__':
     ]
     
     border_data = read_base_border_csvs(read_list)
-    path_data = read_points_csv(f'fwss_reader/loca_20260714_{path_type}.csv')
-    label_json='add_labels/add_label_list_fullname.json'
+    path_data = read_points_csv(f'fwss_reader/loca_{date}_{path_type}.csv')
+    label_json=f'add_labels/add_label_list_fullname_{date}.json'
         
     china_provinces = [
         "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
@@ -513,14 +517,36 @@ if __name__ == '__main__':
         "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
         "香港特別行政區", "澳門特別行政區", "臺灣省"
     ]
+
+    world_level = visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg', legend_loc='lower left', sampling=10) 
+    japan_level = visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], format='jpg', label_json=label_json, sampling=1, draw_map=False)
+        
+    with open("total_level.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    new_item = {
+        "date": int(date),
+        "world": world_level,
+        "china": (np.asarray(world_level) - np.asarray(japan_level)).tolist(),
+        "japan": japan_level
+    }
+    print(new_item)
+    data = [item for item in data if item["date"] != new_item["date"]]
+    data.append(new_item)
+    data.sort(key=lambda x: x["date"])
+
+    with open("total_level.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+        
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf', legend_loc='lower left')
+    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg', legend_loc='lower left')
+    # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
+    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, target_names=['静岡県','東京都','千葉県','埼玉県','神奈川県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
+
     # for p in china_provinces:
     # # for p in ['广西壮族自治区']:
     #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
     #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf', legend_loc='lower left')
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg', legend_loc='lower left')
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg', legend_loc='lower left')
     # visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
 
@@ -530,12 +556,5 @@ if __name__ == '__main__':
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['连江县'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣','连江县'])
     # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣','金门县'])
-    
-    
-    visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], label_json=label_json)
-    tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['大阪府','兵庫県','愛知県','岐阜県','東京都','千葉県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
-    visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, target_names=['静岡県','東京都','千葉県','埼玉県','神奈川県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
-    
     
     # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/县级可视化', fig_width=100, target_names=['Vietnam'])

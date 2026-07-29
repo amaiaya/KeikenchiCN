@@ -1,9 +1,11 @@
 import json
 import csv
+from pathlib import Path
 
 CSV_FILE = "../经过县区名_base-WGS_path-WGS.csv"
+DATE = max(file.stem.split("_")[1] for file in Path("../fwss_reader").glob("loca_*_wgs.csv"))
 JSON_FILE = "add_label_list.json"
-OUTPUT_FILE = "add_label_list_fullname.json"
+OUTPUT_FILE = f"add_label_list_fullname_{DATE}.json"
 
 # Load all full names from CSV
 full_names = []
