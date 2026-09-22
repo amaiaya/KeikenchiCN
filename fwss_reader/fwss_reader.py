@@ -11,6 +11,8 @@ import math
 from pathlib import Path
 from typing import List, Tuple
 import re
+import argparse
+import csv
 
 # 常量定义
 MAP_WIDTH = 512
@@ -22,6 +24,63 @@ BITMAP_WIDTH = 64
 
 FILENAME_MASK1 = "olhwjsktri"
 FILENAME_ENCODING = {char: idx for idx, char in enumerate(FILENAME_MASK1)}
+FWSS_TIMESTAMP_PATTERN = re.compile(r"(20\d{6}T\d{6}(?:[+-]\d{4})?)")
+FWSS_DATE_PATTERN = re.compile(r"(20\d{6})")
+
+
+def extract_fwss_date(fwss_path: str) -> str:
+    """从快照文件名中提取 YYYYMMDD 日期。"""
+    match = FWSS_TIMESTAMP_PATTERN.search(Path(fwss_path).name)
+    if match:
+        return match.group(1)[:8]
+    match = FWSS_DATE_PATTERN.search(Path(fwss_path).name)
+    if match:
+        return match.group(1)
+    raise ValueError(f"无法从文件名提取日期: {fwss_path}")
+
+
+def find_latest_fwss(fwss_dir: str = None) -> Path:
+    """按文件名中的快照时间戳选择最新的 .fwss 文件。"""
+    directory = Path(fwss_dir) if fwss_dir else Path(__file__).with_name("fwss")
+    candidates = [path for path in directory.glob("*.fwss") if path.is_file()]
+    if not candidates:
+        raise FileNotFoundError(f"{directory} 中没有找到 .fwss 文件")
+
+    def sort_key(path: Path):
+        timestamp = FWSS_TIMESTAMP_PATTERN.search(path.name)
+        return (timestamp.group(1) if timestamp else "", path.stat().st_mtime, path.name)
+
+    return max(candidates, key=sort_key)
+
+
+def write_coordinates_csv(coordinates: List[Tuple[float, float]], output_path: str) -> Path:
+    """把坐标列表写入 longitude,latitude CSV。"""
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["longitude", "latitude"])
+        writer.writerows((f"{lng:.8f}", f"{lat:.8f}") for lng, lat in coordinates)
+    return output
+
+
+def generate_latest_csv(fwss_dir: str = None, output_dir: str = None) -> Path:
+    """读取最新快照，生成唯一的最新 loca CSV，并清理旧 loca CSV。"""
+    latest_fwss = find_latest_fwss(fwss_dir)
+    destination_dir = Path(output_dir) if output_dir else Path(__file__).parent
+    date = extract_fwss_date(latest_fwss)
+    output = destination_dir / f"loca_{date}_wgs.csv"
+
+    print(f"读取最新 FWSS: {latest_fwss}")
+    coordinates = read_fwss(str(latest_fwss))
+    write_coordinates_csv(coordinates, output)
+
+    for old_csv in destination_dir.glob("loca_*_wgs.csv"):
+        if old_csv != output:
+            old_csv.unlink()
+            print(f"已删除旧轨迹 CSV: {old_csv}")
+    print(f"坐标已保存到: {output}")
+    return output
 
 
 def read_fwss(fwss_path: str) -> List[Tuple[float, float]]:
@@ -134,23 +193,19 @@ def _xy_to_lnglat(x: float, y: float) -> Tuple[float, float]:
 
 
 if __name__ == '__main__':
-    # 简单测试
-    import sys
-    if len(sys.argv) > 1:
-        coords = read_fwss(sys.argv[1])
-        print(f"共读取 {len(coords)} 个坐标点")
-        if coords:
-            print(f"前5个坐标:")
-            for i, (lng, lat) in enumerate(coords[:5]):
-                print(f"  {i+1}. ({lng:.6f}, {lat:.6f})")
-        
-        fwss_date = re.search(r'-20\d{6}', sys.argv[1]).group()[1:]
-        output_path = f'loca_{fwss_date}_wgs.csv'
+    parser = argparse.ArgumentParser(description="读取最新或指定的 FWSS 快照")
+    parser.add_argument("fwss_file", nargs="?", help="指定 .fwss 文件；省略时自动选择最新文件")
+    parser.add_argument("-o", "--output", help="输出 CSV 路径")
+    args = parser.parse_args()
 
-        if output_path:
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write("longitude,latitude\n")
-                for lng, lat in coords:
-                    f.write(f"{lng:.8f},{lat:.8f}\n")
+    if args.fwss_file:
+        fwss_path = Path(args.fwss_file)
+        date = extract_fwss_date(fwss_path)
+        default_output_dir = fwss_path.parent.parent if fwss_path.parent.name == "fwss" else fwss_path.parent
+        output = Path(args.output) if args.output else default_output_dir / f"loca_{date}_wgs.csv"
+        coordinates = read_fwss(str(fwss_path))
+        print(f"共读取 {len(coordinates)} 个坐标点")
+        write_coordinates_csv(coordinates, output)
+        print(f"坐标已保存到: {output}")
     else:
-        print("用法: python fwss_reader.py <fwss文件路径>")
+        generate_latest_csv()

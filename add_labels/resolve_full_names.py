@@ -1,15 +1,32 @@
 import json
 import csv
+import argparse
+import re
 from pathlib import Path
 
-CSV_FILE = "../经过县区名_base-WGS_path-WGS.csv"
-DATE = max(file.stem.split("_")[1] for file in Path("../fwss_reader").glob("loca_*_wgs.csv"))
-JSON_FILE = "add_label_list.json"
-OUTPUT_FILE = f"add_label_list_fullname_{DATE}.json"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="将手动短名称标签解析为行政区全称")
+    parser.add_argument('--date', required=True, help='日期 YYYYMMDD')
+    parser.add_argument('--csv', default=str(PROJECT_DIR / '经过县区名_base-WGS_path-WGS.csv'), help='gen 脚本生成的初步县区 CSV')
+    parser.add_argument('--input', default=str(PROJECT_DIR / 'add_labels' / 'add_label_list.json'), help='手动维护的短名称标签 JSON')
+    parser.add_argument('--output', default=None, help='输出 fullname JSON；默认按日期写入 add_labels')
+    args = parser.parse_args()
+    if not re.fullmatch(r'20\d{6}', args.date):
+        raise ValueError(f"日期必须是 YYYYMMDD: {args.date}")
+    return args
+
+
+args = parse_args()
+CSV_FILE = Path(args.csv)
+JSON_FILE = Path(args.input)
+OUTPUT_FILE = Path(args.output or PROJECT_DIR / 'add_labels' / f"add_label_list_fullname_{args.date}.json")
 
 # Load all full names from CSV
 full_names = []
-with open(CSV_FILE, encoding="utf-8") as f:
+with CSV_FILE.open(encoding="utf-8") as f:
     reader = csv.DictReader(f)
     for row in reader:
         full_names.append(row["name"])
@@ -20,7 +37,7 @@ def find_matches(short_name):
     n = len(short_tokens)
     return [fn for fn in full_names if fn.split()[-n:] == short_tokens]
 
-with open(JSON_FILE, encoding="utf-8") as f:
+with JSON_FILE.open(encoding="utf-8") as f:
     data = json.load(f)
 
 all_unique = True
@@ -147,7 +164,7 @@ if all_unique:
     print("所有元素均唯一匹配，正在保存全称 JSON...")
     for list_name in resolved:
         resolved[list_name] = sorted(resolved[list_name])
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    with OUTPUT_FILE.open("w", encoding="utf-8") as f:
         json.dump(resolved, f, ensure_ascii=False, indent=4)
     print(f"已保存至 {OUTPUT_FILE}")
 else:

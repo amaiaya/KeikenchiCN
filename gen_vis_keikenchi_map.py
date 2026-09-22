@@ -2,6 +2,10 @@ import csv
 import sys
 import os
 import json
+import argparse
+import re
+import warnings
+from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon, Patch
 import matplotlib.font_manager as fm
@@ -15,6 +19,7 @@ import cartopy.crs as ccrs
 from collections import defaultdict
 from importlib.metadata import version
 from packaging.version import parse
+from fwss_reader.fwss_reader import extract_fwss_date, find_latest_fwss, read_fwss
 
 
 
@@ -208,6 +213,19 @@ def read_points_csv(csv_file, sampling=-1):
     return [points_df, points_type]
 
 
+def read_points_coordinates(coordinates):
+    """把 FWSS 解析出的 (longitude, latitude) 坐标转换为轨迹点数据。"""
+    points_df = pd.DataFrame(coordinates, columns=['longitude', 'latitude'])
+    print(f"加载了 {len(points_df)} 个点，坐标系WGS")
+    return [points_df, 'WGS']
+
+
+def read_points_fwss(fwss_file):
+    """直接读取 FWSS，不创建中间 loca CSV。"""
+    print(f"读取 FWSS: {fwss_file}")
+    return read_points_coordinates(read_fwss(str(fwss_file)))
+
+
 def _match_target(ext_path, target):
     """target按空格分割后，每个部分须出现在ext_path的空格分割列表中"""
     parts = target.split()
@@ -249,7 +267,8 @@ def _get_label_index(ext_path, label_map):
 def visualize_with_points(admin_regions, points_df=None, show_points=True, sampling=-1,
                           point_size=0.5, prefix_name='县级可视化', target_names=None,
                           ignore_names=None, points_within_only=True, fig_width=-1, format='jpg',
-                          label_json=None, font_scale=1, hide_never=False, legend_loc='best', projection='m', draw_map=True):
+                          label_json=None, font_scale=1, hide_never=False, legend_loc='best', projection='m', draw_map=True,
+                          output_csv=None):
     # 没有传入轨迹点时，禁用所有与点相关的操作
     has_points_df = points_df is not None
     if not has_points_df:
@@ -358,7 +377,7 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
         if target_names is None:
             # 标签短名
             short_labels = [lbl.split('（')[0] for lbl in legend_labels]
-            out_csv_name = '_'.join(['经过县区名'] + base_file_names[1:]) + '.csv'
+            out_csv_name = output_csv or ('_'.join(['经过县区名'] + base_file_names[1:]) + '.csv')
             out_rows = []
             for idx, region in enumerate(regions):
                 lbl = region_labels[idx]
@@ -371,6 +390,9 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
                 })
             df = pd.DataFrame(out_rows, columns=['name', 'count', 'label'])
             df.sort_values('name', inplace=True)
+            output_parent = Path(out_csv_name).parent
+            if str(output_parent) != '.':
+                output_parent.mkdir(parents=True, exist_ok=True)
             df.to_csv(out_csv_name, index=False, encoding='utf-8')
     else:
         # 无任何标签信息：全部视为未踏
@@ -471,8 +493,18 @@ def visualize_with_points(admin_regions, points_df=None, show_points=True, sampl
 
 
 def require(pkg, min_ver):
-    cur = version(pkg)
-    assert parse(cur) >= parse(min_ver), f"{pkg} 版本过低: 当前 {cur}, 需要 >= {min_ver}"
+    try:
+        cur = version(pkg)
+    except Exception as exc:
+        warnings.warn(f"无法检查依赖 {pkg}: {exc}", RuntimeWarning)
+        return False
+    if parse(cur) < parse(min_ver):
+        warnings.warn(
+            f"{pkg} 版本较低: 当前 {cur}，建议 >= {min_ver}",
+            RuntimeWarning,
+        )
+        return False
+    return True
 
 
 def check_env():
@@ -484,77 +516,225 @@ def check_env():
     require('pandas', '3.0.3')
     
 
-if __name__ == '__main__':
-    check_env()
-    date = '20260728'
-    border_type = 'wgs'
-    path_type = border_type
+DATE_PATTERN = re.compile(r'(?<!\d)(20\d{6})(?!\d)')
 
+
+def validate_date(date):
+    if not DATE_PATTERN.fullmatch(date):
+        raise ValueError(f"日期必须是 YYYYMMDD: {date}")
+    return date
+
+
+def date_from_loca_path(path):
+    match = re.search(r'loca_(20\d{6})_', Path(path).name)
+    return match.group(1) if match else None
+
+
+def find_fwss_for_date(date, fwss_dir='fwss_reader/fwss'):
+    matches = []
+    for path in Path(fwss_dir).glob('*.fwss'):
+        try:
+            if extract_fwss_date(path) == date:
+                matches.append(path)
+        except ValueError:
+            continue
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return max(matches, key=lambda path: path.stat().st_mtime)
+    return None
+
+
+def load_path_data(date=None, points_file=None, fwss_file=None):
+    """优先读取显式输入；没有 loca CSV 时直接读取对应 FWSS。"""
+    if points_file:
+        path = Path(points_file)
+        if not path.exists():
+            raise FileNotFoundError(path)
+        inferred_date = date_from_loca_path(path)
+        resolved_date = date or inferred_date
+        if not resolved_date:
+            raise ValueError('CSV 文件名不含日期，请通过 --date 指定日期')
+        return resolved_date, read_points_csv(str(path))
+
+    if fwss_file:
+        path = Path(fwss_file)
+        if not path.exists():
+            raise FileNotFoundError(path)
+        return date or extract_fwss_date(path), read_points_fwss(path)
+
+    if date:
+        csv_path = Path(f'fwss_reader/loca_{date}_wgs.csv')
+        if csv_path.exists():
+            return date, read_points_csv(str(csv_path))
+        snapshot = find_fwss_for_date(date)
+        if snapshot:
+            return date, read_points_fwss(snapshot)
+        raise FileNotFoundError(f"找不到日期 {date} 的 loca CSV 或 FWSS 文件")
+
+    snapshot = find_latest_fwss()
+    return extract_fwss_date(snapshot), read_points_fwss(snapshot)
+
+
+def read_border_data(border_type='wgs'):
     read_list = [
         f'border_data/mainland/china_mainland_boundaries_{border_type}.csv',
         f'border_data/hong_kong/hk_boundaries_{border_type}.csv',
         f'border_data/macau/mc_boundaries_{border_type}.csv',
         f'border_data/taiwan/taiwan_town_boundaries_{border_type}.csv',
         f'border_data/japan/japan_boundaries_{border_type}.csv',
-        # 暂时不需要
-        # f'border_data/vietnam/vn_1_boundaries_{border_type}.csv',
-        # f'border_data/south_korea/sk_boundaries_{border_type}.csv',
-        # f'border_data/north_korea/nk_boundaries_{border_type}.csv',
-        # f'border_data/GeoBoundaries/MNG/MNG_ADM2_boundaries_{border_type}.csv',
     ]
-    
-    border_data = read_base_border_csvs(read_list)
-    path_data = read_points_csv(f'fwss_reader/loca_{date}_{path_type}.csv')
-    label_json=f'add_labels/add_label_list_fullname_{date}.json'
-        
-    china_provinces = [
-        "河北省", "山西省", "辽宁省", "吉林省", "黑龙江省",
-        "江苏省", "浙江省", "安徽省", "福建省", "江西省",
-        "山东省", "河南省", "湖北省", "湖南省", "广东省",
-        "海南省", "四川省", "贵州省", "云南省", "陕西省",
-        "甘肃省", "青海省", 
-        "北京市", "天津市", "上海市", "重庆市", 
-        "内蒙古自治区", "广西壮族自治区", "宁夏回族自治区", "新疆维吾尔自治区", "西藏自治区",
-        "香港特別行政區", "澳門特別行政區", "臺灣省"
-    ]
+    return read_base_border_csvs(read_list)
 
-    world_level = visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='jpg', legend_loc='lower left', sampling=10) 
-    japan_level = visualize_with_points(border_data, path_data, show_points=False, fig_width=100, target_names=['日本'], format='jpg', label_json=label_json, sampling=1, draw_map=False)
-        
-    with open("total_level.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-    new_item = {
-        "date": int(date),
-        "world": world_level,
-        "china": (np.asarray(world_level) - np.asarray(japan_level)).tolist(),
-        "japan": japan_level
+
+def discover_history_dates():
+    csv_dates = {
+        match.group(1)
+        for path in Path('fwss_reader').glob('loca_*_wgs.csv')
+        for match in [re.search(r'loca_(20\d{6})_wgs\.csv$', path.name)]
+        if match
     }
-    print(new_item)
-    data = [item for item in data if item["date"] != new_item["date"]]
+    label_dates = {
+        match.group(1)
+        for path in Path('add_labels').glob('add_label_list_fullname_*.json')
+        for match in [re.search(r'add_label_list_fullname_(20\d{6})\.json$', path.name)]
+        if match
+    }
+    return sorted(csv_dates & label_dates)
+
+
+def generate_history(border_data, history_dir='history'):
+    dates = discover_history_dates()
+    destination_dir = Path(history_dir)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    pending_dates = [
+        date for date in dates
+        if not (destination_dir / f'经过县区名_base-WGS_path-WGS_{date}.csv').exists()
+    ]
+    if not pending_dates:
+        print('history 已包含所有可重建的日期，无需更新。')
+        return
+    for date in pending_dates:
+        _, path_data = load_path_data(date=date)
+        destination = destination_dir / f'经过县区名_base-WGS_path-WGS_{date}.csv'
+        visualize_with_points(
+            border_data,
+            path_data,
+            show_points=False,
+            fig_width=200,
+            label_json=f'add_labels/add_label_list_fullname_{date}.json',
+            format='jpg',
+            legend_loc='lower left',
+            sampling=10,
+            draw_map=False,
+            output_csv=str(destination),
+        )
+        print(f'历史结果已保存: {destination}')
+
+
+def update_total_level(date, world_level, japan_level):
+    total_level_path = Path('total_level.json')
+    if total_level_path.exists():
+        with total_level_path.open('r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = []
+    new_item = {
+        'date': int(date),
+        'world': world_level,
+        'china': (np.asarray(world_level) - np.asarray(japan_level)).tolist(),
+        'japan': japan_level,
+    }
+    data = [item for item in data if item['date'] != new_item['date']]
     data.append(new_item)
-    data.sort(key=lambda x: x["date"])
-
-    with open("total_level.json", "w", encoding="utf-8") as f:
+    data.sort(key=lambda item: item['date'])
+    with total_level_path.open('w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-        
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='pdf', legend_loc='lower left')
-    # visualize_with_points(border_data, path_data, show_points=False, fig_width=200, label_json=label_json, format='svg', legend_loc='lower left')
-    # tokyo_islands = ['大島支庁', '三宅支庁', '八丈支庁', '小笠原支庁', '東京都 所属不明地']
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, target_names=['静岡県','東京都','千葉県','埼玉県','神奈川県'], ignore_names=tokyo_islands, label_json=label_json, font_scale=0.7)
 
-    # for p in china_provinces:
-    # # for p in ['广西壮族自治区']:
-    #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
-    #     visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=False, fig_width=50, point_size=1.5, target_names=[p], label_json=label_json)
 
-    # visualize_with_points(border_data, path_data, show_points=True, fig_width=200, points_within_only=False, label_json=label_json, format='svg')
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, fig_width=100, point_size=1.5, target_names=['广东省', '香港特別行政區', '澳門特別行政區'], label_json=label_json)
+def parse_args():
+    parser = argparse.ArgumentParser(description='生成县区经验值地图和结果 CSV')
+    parser.add_argument('date', nargs='?', help='日期 YYYYMMDD；省略时使用最新 FWSS')
+    parser.add_argument('--date', dest='date_option', help='日期 YYYYMMDD（与位置参数二选一）')
+    parser.add_argument('--points-file', help='直接指定 loca CSV')
+    parser.add_argument('--fwss-file', help='直接指定 FWSS，不生成 loca 中间文件')
+    parser.add_argument('--labels', help='直接指定 fullname 标签 JSON')
+    parser.add_argument('--no-labels', '--ignore-labels', action='store_true', help='忽略已有标签，只生成初步 CSV')
+    parser.add_argument('--history', action='store_true', help='根据已有日期 CSV 和 fullname JSON 更新 history')
+    parser.add_argument('--no-map', action='store_true', help='只计算结果，不生成地图图片')
+    return parser.parse_args()
 
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣'])
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金门县'])
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣'])
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['连江县'])
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['連江縣','连江县'])
-    # visualize_with_points(border_data, path_data, prefix_name='split_figs/县级可视化', show_points=True, target_names=['金門縣','金门县'])
-    
-    # visualize_with_points(border_data, path_data, show_points=False, prefix_name='split_figs/县级可视化', fig_width=100, target_names=['Vietnam'])
+
+if __name__ == '__main__':
+    args = parse_args()
+    check_env()
+    if args.date and args.date_option:
+        raise ValueError('日期只能通过位置参数或 --date 指定一次')
+    date_argument = args.date or args.date_option
+    if date_argument:
+        date_argument = validate_date(date_argument)
+
+    border_data = read_border_data()
+    if args.history:
+        generate_history(border_data)
+        raise SystemExit(0)
+
+    date, path_data = load_path_data(
+        date=date_argument,
+        points_file=args.points_file,
+        fwss_file=args.fwss_file,
+    )
+    validate_date(date)
+
+    if args.labels:
+        label_json = Path(args.labels)
+        if not label_json.exists():
+            raise FileNotFoundError(label_json)
+        label_json = str(label_json)
+    elif args.no_labels:
+        label_json = None
+    else:
+        default_label_json = Path(f'add_labels/add_label_list_fullname_{date}.json')
+        label_json = str(default_label_json) if default_label_json.exists() else None
+        if label_json is None:
+            print(f'未找到 {default_label_json}，本次先生成未标注的初步 CSV。')
+
+    preliminary = label_json is None
+    if preliminary:
+        visualize_with_points(
+            border_data,
+            path_data,
+            show_points=False,
+            fig_width=200,
+            label_json=None,
+            format='jpg',
+            legend_loc='lower left',
+            sampling=10,
+            draw_map=False,
+        )
+        print('初步县区结果已生成，请运行 add_labels/resolve_full_names.py 生成标签 JSON。')
+        raise SystemExit(0)
+
+    world_level = visualize_with_points(
+        border_data,
+        path_data,
+        show_points=False,
+        fig_width=200,
+        label_json=label_json,
+        format='jpg',
+        legend_loc='lower left',
+        sampling=10,
+        draw_map=not args.no_map,
+    )
+    japan_level = visualize_with_points(
+        border_data,
+        path_data,
+        show_points=False,
+        fig_width=100,
+        target_names=['日本'],
+        format='jpg',
+        label_json=label_json,
+        sampling=1,
+        draw_map=False,
+    )
+    update_total_level(date, world_level, japan_level)
