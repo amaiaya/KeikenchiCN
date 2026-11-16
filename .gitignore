@@ -1,4 +1,5 @@
 *json
+!total_level.json
 *.csv
 *.png
 *.webp
